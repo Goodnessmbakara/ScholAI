@@ -16,8 +16,9 @@ dependencies:
   cloud_firestore: ^5.4.4
   firebase_messaging: ^15.1.3
 
-  # Gemini AI
+  # Gemini AI & Live WebSocket
   google_generative_ai: ^0.4.6
+  web_socket_channel: ^3.0.1
 
   # State Management
   flutter_bloc: ^8.1.6
