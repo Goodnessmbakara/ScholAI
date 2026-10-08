@@ -1,0 +1,29 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# Flutter / Dart
+**/build/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.pub-cache/
+**/.pub/
+**/coverage/
+
+# Secrets & Configs
+*.env
+*google-services.json
+*GoogleService-Info.plist
+
+# Logs
+*.log
