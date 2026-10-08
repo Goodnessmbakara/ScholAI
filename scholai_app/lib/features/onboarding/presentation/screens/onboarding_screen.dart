@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:scholai_app/core/theme/app_theme.dart';
+import 'package:scholai_app/core/theme/scholai_colors.dart';
 import 'package:scholai_app/shared/widgets/scholai_mark.dart';
 
-/// 3-screen onboarding flow. Shown only on first launch.
-/// Sets the tone: "This is not therapy. This is your space."
+/// 3-screen high-fidelity onboarding flow with editorial illustrations.
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
 
@@ -19,29 +18,66 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   static const _pages = [
     _OnboardingPage(
-      emoji: 'MARK',
-      title: 'Hey, welcome to ScholAI',
-      body: 'This is a private space for you to check in with yourself daily. No one can see what you share here — not us, not your university.',
+      imageAsset: 'assets/images/onboarding_welcome.jpg',
+      badge: 'SAFE SANCTUARY',
+      title: 'Welcome to your private reflection space',
+      body: 'University life can be overwhelming. ScholAI gives you a calm, zero-judgment daily pause to check in with how you are genuinely doing.',
     ),
     _OnboardingPage(
-      emoji: '🤖',
-      title: 'Meet Scholly',
-      body: 'Scholly isn\'t a therapist. Scholly is a reflection companion — asking questions that help you understand what you\'re feeling. No advice, no judgment.',
+      imageAsset: 'assets/images/onboarding_companion.jpg',
+      badge: 'MEET SCHOLLY',
+      title: 'A companion that asks, not prescribes',
+      body: 'Scholly isn\'t a clinical therapist. It\'s a reflective guide asking one thoughtful question at a time to help you find your own inner clarity.',
     ),
     _OnboardingPage(
-      emoji: '🔒',
-      title: 'Your privacy is real',
-      body: 'You\'re completely anonymous. No name, no email, no phone number. Your journal entries are encrypted — even we can\'t read them.',
+      imageAsset: 'assets/images/onboarding_privacy.jpg',
+      badge: 'ZERO-KNOWLEDGE PRIVACY',
+      title: 'Completely anonymous. Always private.',
+      body: 'No email. No phone number. No names. Your entries stay encrypted and untouchable — neither your university nor anyone else can ever access them.',
     ),
   ];
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+
     return Scaffold(
-      backgroundColor: AppColors.surfaceDark,
+      backgroundColor: colors.surfaceDark,
       body: SafeArea(
         child: Column(
           children: [
+            // Header with brand mark
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      const ScholAIMark(size: 28),
+                      const SizedBox(width: 10),
+                      Text(
+                        'ScholAI',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: colors.textPrimary,
+                            ),
+                      ),
+                    ],
+                  ),
+                  if (_currentPage < _pages.length - 1)
+                    TextButton(
+                      onPressed: _skipToHome,
+                      child: Text(
+                        'Skip',
+                        style: TextStyle(color: colors.textSecondary),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+
+            // Page View with editorial visuals
             Expanded(
               child: PageView.builder(
                 controller: _pageController,
@@ -50,29 +86,46 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 itemBuilder: (context, i) => _OnboardingPageView(page: _pages[i]),
               ),
             ),
-            // Dots indicator
+
+            // Indicator dots
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(_pages.length, (i) => AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                margin: const EdgeInsets.symmetric(horizontal: 4),
-                width: _currentPage == i ? 24 : 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: _currentPage == i ? AppColors.primary : AppColors.textMuted,
-                  borderRadius: BorderRadius.circular(4),
+              children: List.generate(
+                _pages.length,
+                (i) => AnimatedContainer(
+                  duration: const Duration(milliseconds: 250),
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  width: _currentPage == i ? 24 : 8,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: _currentPage == i ? colors.primary : colors.textMuted.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
                 ),
-              )),
+              ),
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
+
+            // Action button
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: ElevatedButton(
                 onPressed: _onContinue,
-                child: Text(_currentPage < _pages.length - 1 ? 'Continue' : "Let's go →"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: colors.primary,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 54),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                child: Text(
+                  _currentPage < _pages.length - 1 ? 'Continue' : 'Enter Your Space →',
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                ),
               ),
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 20),
           ],
         ),
       ),
@@ -82,15 +135,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Future<void> _onContinue() async {
     if (_currentPage < _pages.length - 1) {
       _pageController.nextPage(
-        duration: const Duration(milliseconds: 400),
+        duration: const Duration(milliseconds: 350),
         curve: Curves.easeInOut,
       );
     } else {
-      // Mark onboarding as complete
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('onboarding_done', true);
-      if (mounted) context.go('/home');
+      await _skipToHome();
     }
+  }
+
+  Future<void> _skipToHome() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('onboarding_done', true);
+    if (mounted) context.go('/home');
   }
 }
 
@@ -100,31 +156,79 @@ class _OnboardingPageView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+
     return Padding(
-      padding: const EdgeInsets.all(32),
+      padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          if (page.emoji == 'MARK')
-            const ScholAIMark(size: 96, showGlow: true)
-          else
-            Text(page.emoji, style: const TextStyle(fontSize: 72)),
-          const SizedBox(height: 32),
+          // Visual asset with container styling & subtle warm border
+          Container(
+            height: 240,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: colors.textPrimary.withValues(alpha: 0.08),
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(24),
+              child: Image.asset(
+                page.imageAsset,
+                fit: BoxFit.cover,
+              ),
+            ),
+          ),
+          const SizedBox(height: 28),
+
+          // Badge
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: colors.primary.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              page.badge,
+              style: TextStyle(
+                fontSize: 10,
+                letterSpacing: 1.2,
+                fontWeight: FontWeight.w700,
+                color: colors.primaryLight,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Title
           Text(
             page.title,
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  color: AppColors.textPrimary,
+                  color: colors.textPrimary,
                   fontWeight: FontWeight.w700,
+                  height: 1.25,
                 ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+
+          // Description
           Text(
             page.body,
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: AppColors.textSecondary,
-                  height: 1.6,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: colors.textSecondary,
+                  height: 1.55,
                 ),
           ),
         ],
@@ -134,6 +238,15 @@ class _OnboardingPageView extends StatelessWidget {
 }
 
 class _OnboardingPage {
-  final String emoji, title, body;
-  const _OnboardingPage({required this.emoji, required this.title, required this.body});
+  final String imageAsset;
+  final String badge;
+  final String title;
+  final String body;
+
+  const _OnboardingPage({
+    required this.imageAsset,
+    required this.badge,
+    required this.title,
+    required this.body,
+  });
 }
