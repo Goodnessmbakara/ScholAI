@@ -8,6 +8,7 @@ import 'package:scholai_app/core/services/gemini_service.dart';
 import 'package:scholai_app/core/theme/app_theme.dart';
 import 'package:scholai_app/core/utils/app_logger.dart';
 import 'package:scholai_app/core/utils/app_router.dart';
+import 'package:scholai_app/firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,10 +24,12 @@ void main() async {
     AppLogger.warning('Encryption initialization failed', error: e, stackTrace: stack);
   }
 
-  // Graceful Firebase bootstrap: if google-services.json is not yet provided,
+  // Graceful Firebase bootstrap: if config/auth is unavailable,
   // the app boots in offline demo mode without crashing.
   try {
-    await Firebase.initializeApp();
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
     await AuthService.instance.signInAnonymously();
     AppLogger.info('Firebase & Anonymous Auth initialized.');
   } catch (e) {
