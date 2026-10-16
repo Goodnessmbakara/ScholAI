@@ -31,9 +31,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     ),
     _OnboardingPage(
       imageAsset: 'assets/images/onboarding_privacy.jpg',
-      badge: 'ZERO-KNOWLEDGE PRIVACY',
-      title: 'Completely anonymous. Always private.',
-      body: 'No email. No phone number. No names. Your entries stay encrypted and untouchable — neither your university nor anyone else can ever access them.',
+      badge: 'PRIVACY FIRST',
+      title: 'Anonymous by default. Sync only if you choose.',
+      body: 'No account required — you start anonymously. Optionally sign in with Google later to keep the same account across devices. Your university still cannot read your private reflections.',
     ),
   ];
 

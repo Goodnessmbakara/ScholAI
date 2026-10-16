@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:scholai_app/core/utils/app_config.dart';
 import 'package:scholai_app/core/utils/app_logger.dart';
+import 'package:scholai_app/core/utils/crisis_detection.dart';
+
 
 /// Event stream types emitted by the Gemini Multimodal Live API.
 sealed class GeminiLiveEvent {
@@ -37,37 +41,48 @@ class LiveErrorEvent extends GeminiLiveEvent {
   const LiveErrorEvent(this.message);
 }
 
-/// Bidirectional WebSocket Client for Google's Gemini Multimodal Live API.
-///
-/// Features:
-/// - Real-time low-latency voice streaming (< 500ms response).
-/// - Configured with the gentle, compassionate 'Aoede' voice.
-/// - Built-in interruption handling (bidi streaming).
-/// - Safety layer monitoring for crisis expressions.
+/// Bidirectional WebSocket client for Gemini Live (native audio).
 class GeminiLiveService {
   GeminiLiveService._();
   static final instance = GeminiLiveService._();
 
-  static const _apiKey = String.fromEnvironment('GEMINI_API_KEY');
   static const _liveHost = 'generativelanguage.googleapis.com';
-  static const _livePath = '/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent';
+  // Current Live API websocket (v1beta).
+  static const _livePath =
+      '/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
+  static const _liveModel = 'models/gemini-3.1-flash-live-preview';
 
   WebSocketChannel? _channel;
   StreamSubscription? _subscription;
   final _eventController = StreamController<GeminiLiveEvent>.broadcast();
+  Completer<void>? _setupCompleter;
+  bool _ready = false;
 
   Stream<GeminiLiveEvent> get events => _eventController.stream;
-  bool get isConnected => _channel != null;
+  bool get isConnected => _channel != null && _ready;
+  bool get hasApiKey => AppConfig.hasGeminiApiKey;
 
-  /// Connects to the Gemini Multimodal Live API WebSocket endpoint
-  /// and completes the initial handshake setup with the 'Aoede' voice persona.
+  /// Connects and waits for `setupComplete` before accepting turns.
   Future<void> connect() async {
     if (_channel != null) return;
 
-    final uri = Uri.parse('wss://$_liveHost$_livePath?key=$_apiKey');
+    if (!hasApiKey) {
+      _eventController.add(
+        const LiveErrorEvent(
+          'GEMINI_API_KEY missing. Copy .env.example → .env, or pass '
+          '--dart-define=GEMINI_API_KEY=...',
+        ),
+      );
+      return;
+    }
+
+    final apiKey = AppConfig.geminiApiKey;
+    final uri = Uri.parse('wss://$_liveHost$_livePath?key=$apiKey');
     AppLogger.info('Connecting to Gemini Live WebSocket: ${uri.host}');
 
     try {
+      _setupCompleter = Completer<void>();
+      _ready = false;
       _channel = WebSocketChannel.connect(uri);
       await _channel!.ready;
 
@@ -84,8 +99,9 @@ class GeminiLiveService {
         },
       );
 
-      // Send initial Setup handshake message
       _sendSetupMessage();
+      await _setupCompleter!.future.timeout(const Duration(seconds: 20));
+      _ready = true;
       _eventController.add(const LiveConnectedEvent());
     } catch (e, stack) {
       AppLogger.error('Failed to connect to Gemini Live', error: e, stackTrace: stack);
@@ -94,17 +110,16 @@ class GeminiLiveService {
     }
   }
 
-  /// Sends the initial configuration handshake to the Live API.
   void _sendSetupMessage() {
     final setupPayload = {
       'setup': {
-        'model': 'models/gemini-2.0-flash-exp',
+        'model': _liveModel,
         'generationConfig': {
-          'responseModalities': ['AUDIO', 'TEXT'],
+          'responseModalities': ['AUDIO'],
           'speechConfig': {
             'voiceConfig': {
               'prebuiltVoiceConfig': {
-                'voiceName': 'Aoede', // Gentle, warm, compassionate tone
+                'voiceName': 'Aoede',
               },
             },
           },
@@ -121,11 +136,13 @@ Guidelines for spoken audio:
 - Keep spoken responses short (1-2 sentences at a time).
 - Never diagnose, prescribe, or give medical advice.
 - Validate their feelings first, then ask one gentle question.
-- If the student indicates thoughts of self-harm or despair ("i don tire", "nothing dey for me", "want to die"), immediately acknowledge and tell them: "I care about you, and you deserve real human care right now. Let's look at real support together."
+- If the student indicates thoughts of self-harm or despair, immediately acknowledge and urge real human support.
 '''
             }
           ]
-        }
+        },
+        'inputAudioTranscription': {},
+        'outputAudioTranscription': {},
       }
     };
 
@@ -135,32 +152,45 @@ Guidelines for spoken audio:
 
   /// Streams raw 16kHz PCM audio bytes from microphone to Gemini Live.
   void sendAudioChunk(Uint8List pcmChunk) {
-    if (_channel == null) return;
+    if (!isConnected) return;
 
-    final base64Audio = base64Encode(pcmChunk);
     final payload = {
       'realtimeInput': {
-        'mediaChunks': [
-          {
-            'mimeType': 'audio/pcm;rate=16000',
-            'data': base64Audio,
-          }
-        ]
+        'audio': {
+          'mimeType': 'audio/pcm;rate=16000',
+          'data': base64Encode(pcmChunk),
+        }
       }
     };
 
     _channel!.sink.add(jsonEncode(payload));
   }
 
-  /// Sends a text message over the real-time bidi channel.
+  /// Sends a completed text turn (quick prompts / typed input).
   void sendTextMessage(String text) {
-    if (_channel == null) return;
+    if (!isConnected) {
+      _eventController.add(
+        const LiveErrorEvent('Not connected to Live yet. Wait for "Listening..."'),
+      );
+      return;
+    }
+
+    if (_containsCrisisSignal(text)) {
+      _eventController.add(const LiveCrisisDetectedEvent());
+      return;
+    }
 
     final payload = {
-      'realtimeInput': {
-        'parts': [
-          {'text': text}
-        ]
+      'clientContent': {
+        'turns': [
+          {
+            'role': 'user',
+            'parts': [
+              {'text': text}
+            ]
+          }
+        ],
+        'turnComplete': true,
       }
     };
 
@@ -168,40 +198,77 @@ Guidelines for spoken audio:
     _eventController.add(LiveTranscriptReceivedEvent(text: text, isUser: true));
   }
 
-  /// Handles incoming server events from the WebSocket stream.
   void _handleServerMessage(dynamic message) {
     try {
       final decoded = jsonDecode(message as String) as Map<String, dynamic>;
 
-      final serverContent = decoded['serverContent'] as Map<String, dynamic>?;
-      if (serverContent != null) {
-        // Interruption check: user spoke while model was responding
-        final interrupted = serverContent['interrupted'] as bool? ?? false;
-        if (interrupted) {
-          _eventController.add(const LiveInterruptedEvent());
+      if (decoded.containsKey('setupComplete')) {
+        if (!(_setupCompleter?.isCompleted ?? true)) {
+          _setupCompleter!.complete();
         }
+        return;
+      }
 
-        final modelTurn = serverContent['modelTurn'] as Map<String, dynamic>?;
-        if (modelTurn != null) {
-          final parts = modelTurn['parts'] as List<dynamic>? ?? [];
-          for (final part in parts) {
-            final partMap = part as Map<String, dynamic>;
+      if (decoded.containsKey('error')) {
+        final err = decoded['error'];
+        _eventController.add(LiveErrorEvent(err.toString()));
+        return;
+      }
 
-            // 1. Audio chunk
-            final inlineData = partMap['inlineData'] as Map<String, dynamic>?;
-            if (inlineData != null) {
-              final rawBase64 = inlineData['data'] as String?;
-              if (rawBase64 != null) {
-                final audioBytes = base64Decode(rawBase64);
-                _eventController.add(LiveAudioReceivedEvent(audioBytes));
-              }
+      final serverContent = decoded['serverContent'] as Map<String, dynamic>?;
+      if (serverContent == null) return;
+
+      if (serverContent['interrupted'] == true) {
+        _eventController.add(const LiveInterruptedEvent());
+      }
+
+      final inputTx = serverContent['inputTranscription'] as Map<String, dynamic>?;
+      final inputText = inputTx?['text'] as String?;
+      if (inputText != null && inputText.isNotEmpty) {
+        if (_containsCrisisSignal(inputText)) {
+          _eventController.add(const LiveCrisisDetectedEvent());
+          return;
+        }
+        _eventController.add(
+          LiveTranscriptReceivedEvent(text: inputText, isUser: true),
+        );
+      }
+
+      final outputTx = serverContent['outputTranscription'] as Map<String, dynamic>?;
+      final outputText = outputTx?['text'] as String?;
+      if (outputText != null && outputText.isNotEmpty) {
+        if (_containsCrisisSignal(outputText)) {
+          _eventController.add(const LiveCrisisDetectedEvent());
+          return;
+        }
+        _eventController.add(
+          LiveTranscriptReceivedEvent(text: outputText, isUser: false),
+        );
+      }
+
+      final modelTurn = serverContent['modelTurn'] as Map<String, dynamic>?;
+      if (modelTurn != null) {
+        final parts = modelTurn['parts'] as List<dynamic>? ?? [];
+        for (final part in parts) {
+          final partMap = part as Map<String, dynamic>;
+
+          final inlineData = partMap['inlineData'] as Map<String, dynamic>?;
+          if (inlineData != null) {
+            final rawBase64 = inlineData['data'] as String?;
+            if (rawBase64 != null) {
+              _eventController.add(LiveAudioReceivedEvent(base64Decode(rawBase64)));
             }
+          }
 
-            // 2. Transcript text chunk
-            final text = partMap['text'] as String?;
-            if (text != null && text.isNotEmpty) {
-              _eventController.add(LiveTranscriptReceivedEvent(text: text, isUser: false));
+          final text = partMap['text'] as String?;
+          if (text != null && text.isNotEmpty) {
+            if (_containsCrisisSignal(text)) {
+              _eventController.add(const LiveCrisisDetectedEvent());
+              return;
             }
+            _eventController.add(
+              LiveTranscriptReceivedEvent(text: text, isUser: false),
+            );
           }
         }
       }
@@ -210,12 +277,19 @@ Guidelines for spoken audio:
     }
   }
 
-  /// Cleanly closes the WebSocket connection.
+  bool _containsCrisisSignal(String text) =>
+      CrisisDetection.containsCrisisSignal(text);
+
   void disconnect() {
     _subscription?.cancel();
     _subscription = null;
     _channel?.sink.close();
     _channel = null;
+    _ready = false;
+    if (!(_setupCompleter?.isCompleted ?? true)) {
+      _setupCompleter!.completeError(StateError('Disconnected before setup'));
+    }
+    _setupCompleter = null;
     AppLogger.info('Gemini Live disconnected.');
   }
 

@@ -18,7 +18,7 @@ class _JournalScreenState extends State<JournalScreen> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
   final _messages = <ChatMessage>[];
-  late ChatSession _session;
+  ChatSession? _session;
   bool _isLoading = false;
   int _exchangeCount = 0;
 
@@ -33,8 +33,19 @@ class _JournalScreenState extends State<JournalScreen> {
   @override
   void initState() {
     super.initState();
-    _session = GeminiService.instance.startSession();
+    if (GeminiService.instance.hasApiKey) {
+      _session = GeminiService.instance.startSession();
+    }
     _messages.add(_openingMessage);
+    if (!GeminiService.instance.hasApiKey) {
+      _messages.add(
+        const ChatMessage(
+          text:
+              'AI key not embedded in this build. Run with --dart-define=GEMINI_API_KEY=... to enable Scholly.',
+          isUser: false,
+        ),
+      );
+    }
   }
 
   @override
@@ -48,6 +59,19 @@ class _JournalScreenState extends State<JournalScreen> {
     final text = _controller.text.trim();
     if (text.isEmpty || _isLoading) return;
 
+    if (!GeminiService.instance.hasApiKey) {
+      setState(() {
+        _messages.add(
+          const ChatMessage(
+            text:
+                'AI is offline — rebuild the app with --dart-define=GEMINI_API_KEY=your_key.',
+            isUser: false,
+          ),
+        );
+      });
+      return;
+    }
+
     _controller.clear();
     setState(() {
       _messages.add(ChatMessage(text: text, isUser: true));
@@ -55,28 +79,43 @@ class _JournalScreenState extends State<JournalScreen> {
     });
     _scrollToBottom();
 
-    final response = await GeminiService.instance.sendMessage(_session, text);
+    try {
+      final session = _session ??= GeminiService.instance.startSession();
+      final response = await GeminiService.instance.sendMessage(session, text);
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    switch (response) {
-      case CrisisResponse():
-        context.go('/crisis');
-        return;
+      switch (response) {
+        case CrisisResponse():
+          context.go('/crisis');
+          return;
 
-      case ReflectiveReply(:final text):
-        _exchangeCount++;
-        String reply = text;
+        case ReflectiveReply(:final text):
+          _exchangeCount++;
+          String reply = text;
 
-        if (_exchangeCount >= _maxExchanges) {
-          reply += '\n\n_You\'ve been doing a lot of reflection today. Have you thought about talking to someone in person? The UI counselling centre is always open._ 💛';
-        }
+          if (_exchangeCount >= _maxExchanges) {
+            reply +=
+                '\n\n_You\'ve been doing a lot of reflection today. Have you thought about talking to someone in person? The UI counselling centre is always open._ 💛';
+          }
 
-        setState(() {
-          _messages.add(ChatMessage(text: reply, isUser: false));
-          _isLoading = false;
-        });
-        _scrollToBottom();
+          setState(() {
+            _messages.add(ChatMessage(text: reply, isUser: false));
+            _isLoading = false;
+          });
+          _scrollToBottom();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _messages.add(
+          ChatMessage(
+            text: 'Scholly couldn\'t reply just now ($e). Try again in a moment.',
+            isUser: false,
+          ),
+        );
+      });
     }
   }
 

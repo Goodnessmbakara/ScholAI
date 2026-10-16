@@ -16,21 +16,25 @@ flutter pub get
 ```
 
 ### 2. Firebase Setup
-1. Go to [console.firebase.google.com](https://console.firebase.google.com)
-2. Create a new project called `scholai`
-3. Add an Android app (`com.scholai.scholai_app`) and an iOS app
-4. Download `google-services.json` → place in `android/app/`
-5. Download `GoogleService-Info.plist` → place in `ios/Runner/`
-6. Enable **Anonymous Authentication** in Firebase Console → Authentication → Sign-in methods
-7. Create a **Firestore** database in test mode
+Active project: `project-4a50b4ec-612b-4d64-8b5` (ScholAI).
+
+1. Prefer working as **mbakaragoodness2003@gmail.com** (`firebase login:use mbakaragoodness2003@gmail.com`). That account has Editor + Firebase Admin on the project; Owner still sits on amicablembakara50 until an Owner invite is accepted in Cloud Console.
+2. Android package `com.scholai.scholai_app` / iOS bundle `com.scholai.scholaiApp` are already registered.
+3. Keep gitignored configs in place: `android/app/google-services.json`, `ios/Runner/GoogleService-Info.plist`, `lib/firebase_options.dart`.
+4. **Anonymous Authentication** and Firestore rules (`/users/{uid}/**` owner-only) are enabled.
+5. **FCM** APIs are enabled. Android push works after permission grant. **iOS push requires an APNs auth key** uploaded in Firebase Console → Project Settings → Cloud Messaging → Apple app configuration. Also enable Push Notifications capability in Xcode if signing changes wipe entitlements.
 
 ### 3. Gemini API Key
 ```bash
-# Run with your key passed as a Dart define:
+# Preferred for local `flutter run`:
+cp .env.example .env
+# then set GEMINI_API_KEY=... inside .env
+
+# Optional override (wins over .env):
 flutter run --dart-define=GEMINI_API_KEY=your_key_here
 ```
 
-> ⚠️ Never commit your API key. Before production, move it to Firebase Remote Config.
+> ⚠️ Never commit `.env` or your API key. Before production, move it to Firebase Remote Config.
 
 ### 4. Run
 ```bash

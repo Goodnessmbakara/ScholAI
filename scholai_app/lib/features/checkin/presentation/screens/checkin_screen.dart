@@ -33,20 +33,38 @@ class _CheckInScreenState extends State<CheckInScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(height: 16),
-              Text(
-                '$greeting 👋',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AppColors.textSecondary,
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '$greeting 👋',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: AppColors.textSecondary,
+                              ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'How are you today?',
+                          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                                color: AppColors.textPrimary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                      ],
                     ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'How are you today?',
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      color: AppColors.textPrimary,
-                      fontWeight: FontWeight.w700,
-                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Account',
+                    onPressed: () => context.push('/settings'),
+                    icon: const Icon(Icons.manage_accounts_outlined),
+                    color: AppColors.textSecondary,
+                  ),
+                ],
               ),
               const SizedBox(height: 20),
 
@@ -148,6 +166,13 @@ class _CheckInScreenState extends State<CheckInScreen> {
                       child: const Text(
                         'Want to talk about it?',
                         style: TextStyle(color: AppColors.primary),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => context.push('/pro-request'),
+                      child: const Text(
+                        'Talk to a human',
+                        style: TextStyle(color: AppColors.textSecondary),
                       ),
                     ),
                   ],

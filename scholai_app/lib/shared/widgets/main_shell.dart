@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:scholai_app/core/theme/app_theme.dart';
 
-/// Bottom navigation shell that wraps the main 3 screens.
+/// Bottom navigation shell for Check In, Journal, Habits, Trends.
 class MainShell extends StatelessWidget {
   final Widget child;
   const MainShell({super.key, required this.child});
@@ -30,6 +30,11 @@ class MainShell extends StatelessWidget {
             label: 'Journal',
           ),
           NavigationDestination(
+            icon: Icon(Icons.self_improvement_outlined),
+            selectedIcon: Icon(Icons.self_improvement, color: AppColors.primary),
+            label: 'Habits',
+          ),
+          NavigationDestination(
             icon: Icon(Icons.show_chart_outlined),
             selectedIcon: Icon(Icons.show_chart, color: AppColors.primary),
             label: 'Trends',
@@ -41,15 +46,21 @@ class MainShell extends StatelessWidget {
 
   int _indexFromLocation(String location) {
     if (location.startsWith('/journal')) return 1;
-    if (location.startsWith('/trends')) return 2;
+    if (location.startsWith('/habits')) return 2;
+    if (location.startsWith('/trends')) return 3;
     return 0;
   }
 
   void _onTap(BuildContext context, int index) {
     switch (index) {
-      case 0: context.go('/home'); break;
-      case 1: context.go('/journal'); break;
-      case 2: context.go('/trends'); break;
+      case 0:
+        context.go('/home');
+      case 1:
+        context.go('/journal');
+      case 2:
+        context.go('/habits');
+      case 3:
+        context.go('/trends');
     }
   }
 }
