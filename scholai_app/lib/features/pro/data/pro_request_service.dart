@@ -1,11 +1,15 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:scholai_app/core/services/auth_service.dart';
+import 'package:scholai_app/core/utils/app_config.dart';
 import 'package:scholai_app/core/utils/app_logger.dart';
 import 'package:scholai_app/core/utils/crisis_detection.dart';
 import 'package:scholai_app/features/pro/data/models/pro_request.dart';
@@ -144,6 +148,49 @@ class ProRequestService {
       if (professional.phone != null) 'professionalPhone': professional.phone,
       'updatedAt': FieldValue.serverTimestamp(),
     });
+    _notifyThread(
+      studentUid: uid,
+      requestId: request.id,
+      kind: 'matched',
+    );
+  }
+
+  /// Fire-and-forget push to the other party via the notify worker.
+  /// No-ops when NOTIFY_WORKER_URL is not configured or the call fails —
+  /// the live Firestore streams still keep open apps in sync.
+  void _notifyThread({
+    required String studentUid,
+    required String requestId,
+    String kind = 'message',
+  }) {
+    final base = AppConfig.notifyWorkerUrl;
+    if (base.isEmpty) return;
+    unawaited(() async {
+      try {
+        final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+        if (token == null) return;
+        await http
+            .post(
+              Uri.parse('$base/notify'),
+              headers: {
+                'Authorization': 'Bearer $token',
+                'Content-Type': 'application/json',
+              },
+              body: jsonEncode({
+                'studentUid': studentUid,
+                'requestId': requestId,
+                'kind': kind,
+              }),
+            )
+            .timeout(const Duration(seconds: 10));
+      } catch (e, stack) {
+        AppLogger.warning(
+          'notify worker call failed',
+          error: e,
+          stackTrace: stack,
+        );
+      }
+    }());
   }
 
   Future<List<ProRequest>> listRequests() async {
@@ -315,6 +362,14 @@ class ProRequestService {
       ],
     );
     await _persist(matched);
+    final studentUid = matched.userId ?? AuthService.instance.uid;
+    if (studentUid != null && studentUid.isNotEmpty) {
+      _notifyThread(
+        studentUid: studentUid,
+        requestId: matched.id,
+        kind: 'matched',
+      );
+    }
     return matched;
   }
 
@@ -387,6 +442,10 @@ class ProRequestService {
       'messages': FieldValue.arrayUnion([_messageToMap(message)]),
       'updatedAt': FieldValue.serverTimestamp(),
     }, localDoc: updated);
+    final studentUid = updated.userId ?? AuthService.instance.uid;
+    if (studentUid != null && studentUid.isNotEmpty) {
+      _notifyThread(studentUid: studentUid, requestId: requestId);
+    }
     return updated;
   }
 
@@ -416,6 +475,10 @@ class ProRequestService {
       'status': status.wire,
       'updatedAt': FieldValue.serverTimestamp(),
     }, localDoc: updated);
+    final studentUid = updated.userId ?? AuthService.instance.uid;
+    if (studentUid != null && studentUid.isNotEmpty) {
+      _notifyThread(studentUid: studentUid, requestId: requestId);
+    }
     return updated;
   }
 
@@ -462,6 +525,7 @@ class ProRequestService {
       'status': status.wire,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+    _notifyThread(studentUid: userId, requestId: requestId);
     return updated;
   }
 

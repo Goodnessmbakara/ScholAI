@@ -1,0 +1,9 @@
+{
+  "name": "scholai-notify-worker",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "dependencies": {
+    "jose": "^5.9.6"
+  }
+}

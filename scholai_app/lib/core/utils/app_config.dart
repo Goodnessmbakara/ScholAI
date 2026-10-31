@@ -13,4 +13,14 @@ class AppConfig {
   }
 
   static bool get hasGeminiApiKey => geminiApiKey.isNotEmpty;
+
+  static const _dartDefineNotifyUrl =
+      String.fromEnvironment('NOTIFY_WORKER_URL');
+
+  /// Cloudflare Worker that sends FCM pushes. Empty = push disabled.
+  static String get notifyWorkerUrl {
+    if (_dartDefineNotifyUrl.isNotEmpty) return _dartDefineNotifyUrl;
+    if (!dotenv.isInitialized) return '';
+    return dotenv.env['NOTIFY_WORKER_URL']?.trim() ?? '';
+  }
 }

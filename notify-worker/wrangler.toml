@@ -1,0 +1,8 @@
+name = "scholai-notify"
+main = "src/index.js"
+compatibility_date = "2026-10-30"
+
+[vars]
+FIREBASE_PROJECT_ID = "project-4a50b4ec-612b-4d64-8b5"
+# FIREBASE_SA_KEY is a secret — set with:
+#   wrangler secret put FIREBASE_SA_KEY   (paste the service account JSON)
