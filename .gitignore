@@ -35,3 +35,4 @@ functions/package-lock.json
 
 # Logs
 *.log
+.secrets/
