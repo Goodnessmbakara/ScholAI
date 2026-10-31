@@ -41,6 +41,13 @@ service cloud.firestore {
       return role in ['student', 'professional', 'admin', 'superAdmin'];
     }
 
+    // A professional account whose uid is stored as professionalId on the
+    // request — professionals docs are keyed by the applicant's uid.
+    function isMatchedPro() {
+      return hasRole('professional')
+        && resource.data.professionalId == request.auth.uid;
+    }
+
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
 
@@ -64,8 +71,12 @@ service cloud.firestore {
     }
 
     match /users/{userId}/proRequests/{requestId} {
-      allow read: if isOwner(userId) || isAdmin();
-      allow update: if isAdmin();
+      allow get, list: if isOwner(userId) || isAdmin() || isMatchedPro();
+      allow update: if isAdmin()
+        || (isMatchedPro()
+            && request.resource.data.diff(resource.data)
+                .affectedKeys()
+                .hasOnly(['messages', 'status', 'updatedAt']));
     }
 
     match /professionalApplications/{userId} {

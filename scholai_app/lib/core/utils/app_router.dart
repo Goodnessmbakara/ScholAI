@@ -10,6 +10,7 @@ import 'package:scholai_app/features/habits/presentation/screens/urge_timer_scre
 import 'package:scholai_app/features/crisis/presentation/screens/crisis_screen.dart';
 import 'package:scholai_app/features/live/presentation/screens/gemini_live_screen.dart';
 import 'package:scholai_app/features/settings/presentation/screens/settings_screen.dart';
+import 'package:scholai_app/features/pro/presentation/screens/my_cases_screen.dart';
 import 'package:scholai_app/features/pro/presentation/screens/pro_apply_screen.dart';
 import 'package:scholai_app/features/pro/presentation/screens/pro_request_form_screen.dart';
 import 'package:scholai_app/features/pro/presentation/screens/support_hub_screen.dart';
@@ -89,6 +90,10 @@ class AppRouter {
       GoRoute(
         path: '/pro-apply',
         builder: (context, state) => const ProApplyScreen(),
+      ),
+      GoRoute(
+        path: '/my-cases',
+        builder: (context, state) => const MyCasesScreen(),
       ),
       GoRoute(
         path: '/admin',

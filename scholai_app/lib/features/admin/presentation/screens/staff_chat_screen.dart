@@ -88,7 +88,7 @@ class _StaffChatScreenState extends State<StaffChatScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Could not send that reply. Admins only.'),
+          content: Text('Could not send that reply.'),
           backgroundColor: AppColors.error,
         ),
       );
@@ -144,7 +144,7 @@ class _StaffChatScreenState extends State<StaffChatScreen> {
                           horizontal: 16, vertical: 8),
                       color: AppColors.accent.withValues(alpha: 0.12),
                       child: const Text(
-                        'Replying as staff — the student sees these as volunteer messages',
+                        'The student sees your replies as messages from their volunteer',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                             color: AppColors.textSecondary, fontSize: 11),

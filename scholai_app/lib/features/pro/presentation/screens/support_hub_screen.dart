@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:scholai_app/core/theme/app_theme.dart';
 import 'package:scholai_app/features/account/data/account_service.dart';
+import 'package:scholai_app/features/account/domain/platform_role.dart';
 
 /// Two doors: ask for a professional, or ask to become one.
 class SupportHubScreen extends StatefulWidget {
@@ -68,6 +69,15 @@ class _SupportHubScreenState extends State<SupportHubScreen> {
             subtitle: 'Counsellors, trainees, and peer supporters can ask to join.',
             onTap: () => context.push('/pro-apply'),
           ),
+          if (profile?.role == PlatformRole.professional) ...[
+            const SizedBox(height: 12),
+            _Door(
+              icon: Icons.forum_rounded,
+              title: 'My support cases',
+              subtitle: 'Students matched to you — reply in their thread.',
+              onTap: () => context.push('/my-cases'),
+            ),
+          ],
           if (profile?.canManagePlatform == true) ...[
             const SizedBox(height: 12),
             _Door(

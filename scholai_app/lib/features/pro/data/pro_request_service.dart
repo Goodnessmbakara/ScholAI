@@ -72,7 +72,29 @@ class ProRequestService {
     final db = _db;
     if (db == null) return const [];
     final snap = await db.collectionGroup('proRequests').limit(40).get();
-    return snap.docs
+    return _fromQueueDocs(snap.docs)
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  }
+
+  /// Requests matched to the signed-in professional. `professionalId` on the
+  /// request is the pro's Firebase uid — the `professionals` doc id.
+  Future<List<ProRequest>> listMyCases() async {
+    final db = _db;
+    final uid = AuthService.instance.uid;
+    if (db == null || uid == null) return const [];
+    final snap = await db
+        .collectionGroup('proRequests')
+        .where('professionalId', isEqualTo: uid)
+        .limit(40)
+        .get();
+    return _fromQueueDocs(snap.docs)
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+  }
+
+  List<ProRequest> _fromQueueDocs(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    return docs
         .map((doc) {
           final data = doc.data();
           final parentUid = doc.reference.parent.parent?.id;
@@ -81,8 +103,7 @@ class ProRequestService {
             id: doc.id,
           );
         })
-        .toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        .toList();
   }
 
   Future<void> assignProfessional({
