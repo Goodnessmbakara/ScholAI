@@ -1,11 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:scholai_app/core/theme/app_theme.dart';
 import 'package:scholai_app/features/journal/presentation/widgets/chat_bubble.dart';
 import 'package:scholai_app/features/pro/data/models/pro_request.dart';
 import 'package:scholai_app/features/pro/data/pro_request_service.dart';
+import 'package:scholai_app/features/safety/data/conversation_report_service.dart';
+import 'package:scholai_app/features/safety/domain/conversation_report.dart';
+import 'package:scholai_app/features/safety/presentation/report_conversation_sheet.dart';
 
-/// Placeholder chat thread with a matched volunteer (local messages for MVP).
+/// Chat thread with a matched volunteer — live via Firestore when available.
 class ProChatScreen extends StatefulWidget {
   final String requestId;
 
@@ -21,28 +26,34 @@ class _ProChatScreenState extends State<ProChatScreen> {
   ProRequest? _request;
   bool _loading = true;
   bool _sending = false;
+  StreamSubscription<ProRequest?>? _sub;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _sub = ProRequestService.instance
+        .watchRequest(widget.requestId)
+        .listen(_onRequest);
   }
 
   @override
   void dispose() {
+    _sub?.cancel();
     _controller.dispose();
     _scroll.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
-    final req = await ProRequestService.instance.getRequest(widget.requestId);
+  void _onRequest(ProRequest? req) {
     if (!mounted) return;
+    final hadMessages = _request?.messages.length ?? 0;
     setState(() {
       _request = req;
       _loading = false;
     });
-    _scrollToEnd();
+    if ((req?.messages.length ?? 0) != hadMessages) {
+      _scrollToEnd();
+    }
   }
 
   void _scrollToEnd() {
@@ -112,6 +123,22 @@ class _ProChatScreenState extends State<ProChatScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Report this conversation',
+            onPressed: req == null
+                ? null
+                : () => showReportConversationSheet(
+                      context,
+                      kind: ConversationKind.professional,
+                      requestId: widget.requestId,
+                      counterpartName: req.professionalName ?? '',
+                      excerpt: ConversationReportService.excerptFrom(
+                        req.messages,
+                        otherLabel: req.professionalName ?? 'Professional',
+                      ),
+                    ),
+            icon: const Icon(Icons.flag_outlined),
+          ),
           TextButton(
             onPressed: () => context.go('/pro-request/${widget.requestId}'),
             child: const Text('Status', style: TextStyle(color: AppColors.primaryLight)),
@@ -131,7 +158,7 @@ class _ProChatScreenState extends State<ProChatScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       color: AppColors.warning.withValues(alpha: 0.12),
                       child: const Text(
-                        'Not anonymous · Demo thread (messages stay on this device / your account)',
+                        'Not anonymous · A volunteer sees this after they are matched',
                         textAlign: TextAlign.center,
                         style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
                       ),
@@ -140,11 +167,8 @@ class _ProChatScreenState extends State<ProChatScreen> {
                       child: ListView.builder(
                         controller: _scroll,
                         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                        itemCount: req.messages.length + (_sending ? 1 : 0),
+                        itemCount: req.messages.length,
                         itemBuilder: (context, i) {
-                          if (_sending && i == req.messages.length) {
-                            return const ChatBubble.typing();
-                          }
                           return ChatBubble(message: req.messages[i]);
                         },
                       ),

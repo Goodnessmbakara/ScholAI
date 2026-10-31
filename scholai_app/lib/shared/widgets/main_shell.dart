@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:scholai_app/core/theme/app_theme.dart';
+import 'package:scholai_app/core/utils/app_router.dart';
 
 /// Bottom navigation shell for Check In, Journal, Habits, Trends.
 class MainShell extends StatelessWidget {
@@ -9,7 +11,15 @@ class MainShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final location = GoRouterState.of(context).uri.toString();
+    final location = GoRouterState.of(context).uri.path;
+    final place = location.split('?').first;
+    if (AppRouter.resumePlaces.contains(place)) {
+      SharedPreferences.getInstance().then((prefs) {
+        if (prefs.getString('last_place') != place) {
+          prefs.setString('last_place', place);
+        }
+      });
+    }
 
     return Scaffold(
       body: child,

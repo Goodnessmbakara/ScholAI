@@ -4,6 +4,9 @@ import 'package:go_router/go_router.dart';
 import 'package:scholai_app/core/theme/app_theme.dart';
 import 'package:scholai_app/core/services/gemini_service.dart';
 import 'package:scholai_app/features/journal/presentation/widgets/chat_bubble.dart';
+import 'package:scholai_app/features/safety/data/conversation_report_service.dart';
+import 'package:scholai_app/features/safety/domain/conversation_report.dart';
+import 'package:scholai_app/features/safety/presentation/report_conversation_sheet.dart';
 import 'package:scholai_app/shared/models/chat_message.dart';
 
 /// The Gemini-powered Socratic journaling screen.
@@ -81,7 +84,9 @@ class _JournalScreenState extends State<JournalScreen> {
 
     try {
       final session = _session ??= GeminiService.instance.startSession();
-      final response = await GeminiService.instance.sendMessage(session, text);
+      final turn = await GeminiService.instance.sendMessage(session, text);
+      _session = turn.session;
+      final response = turn.response;
 
       if (!mounted) return;
 
@@ -143,6 +148,18 @@ class _JournalScreenState extends State<JournalScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Report this conversation',
+            onPressed: () => showReportConversationSheet(
+              context,
+              kind: ConversationKind.aiJournal,
+              excerpt: ConversationReportService.excerptFrom(
+                _messages,
+                otherLabel: 'Scholly',
+              ),
+            ),
+            icon: const Icon(Icons.flag_outlined),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 16),
             child: Container(

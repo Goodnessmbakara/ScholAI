@@ -1,0 +1,72 @@
+:root {
+  color-scheme: dark;
+  --bg: #1c1612;
+  --card: #2a221c;
+  --text: #f6efe8;
+  --muted: #cbbbae;
+  --line: #4a3b32;
+  --accent: #e7a07a;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 17px/1.55 Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+}
+
+main {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.25rem 4rem;
+}
+
+h1, h2 {
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  line-height: 1.2;
+}
+
+h1 { font-size: 2rem; margin: 0.4rem 0 0.6rem; }
+h2 { font-size: 1.15rem; margin: 2rem 0 0.4rem; }
+
+p, li { color: var(--muted); }
+a { color: var(--accent); }
+
+.kicker {
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  color: var(--accent);
+}
+
+nav {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  font-size: 0.95rem;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  margin-top: 1.25rem;
+}
+
+button, .button {
+  display: inline-block;
+  margin-top: 0.8rem;
+  background: #b85c38;
+  color: #fff;
+  text-decoration: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.7rem 1.1rem;
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  font-size: 0.95rem;
+}

@@ -32,6 +32,10 @@ class LiveInterruptedEvent extends GeminiLiveEvent {
   const LiveInterruptedEvent();
 }
 
+class LiveTurnCompleteEvent extends GeminiLiveEvent {
+  const LiveTurnCompleteEvent();
+}
+
 class LiveCrisisDetectedEvent extends GeminiLiveEvent {
   const LiveCrisisDetectedEvent();
 }
@@ -47,10 +51,10 @@ class GeminiLiveService {
   static final instance = GeminiLiveService._();
 
   static const _liveHost = 'generativelanguage.googleapis.com';
-  // Current Live API websocket (v1beta).
+  // Current Live API websocket. Docs: get-started-websocket, updated 2026-09-15.
   static const _livePath =
       '/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
-  static const _liveModel = 'models/gemini-3.1-flash-live-preview';
+  static const _liveModel = 'models/gemini-3.8-live';
 
   WebSocketChannel? _channel;
   StreamSubscription? _subscription;
@@ -143,6 +147,15 @@ Guidelines for spoken audio:
         },
         'inputAudioTranscription': {},
         'outputAudioTranscription': {},
+        'realtimeInputConfig': {
+          'automaticActivityDetection': {
+            'disabled': false,
+            'startOfSpeechSensitivity': 'START_SENSITIVITY_HIGH',
+            'endOfSpeechSensitivity': 'END_SENSITIVITY_HIGH',
+            'prefixPaddingMs': 200,
+            'silenceDurationMs': 500,
+          },
+        },
       }
     };
 
@@ -166,7 +179,15 @@ Guidelines for spoken audio:
     _channel!.sink.add(jsonEncode(payload));
   }
 
-  /// Sends a completed text turn (quick prompts / typed input).
+  /// Tells the server the microphone stream paused, so it can close the turn.
+  void endAudioStream() {
+    if (!isConnected) return;
+    _channel!.sink.add(jsonEncode({
+      'realtimeInput': {'audioStreamEnd': true},
+    }));
+  }
+
+  /// Sends a text turn. Live expects `realtimeInput.text`, not `clientContent`.
   void sendTextMessage(String text) {
     if (!isConnected) {
       _eventController.add(
@@ -181,17 +202,9 @@ Guidelines for spoken audio:
     }
 
     final payload = {
-      'clientContent': {
-        'turns': [
-          {
-            'role': 'user',
-            'parts': [
-              {'text': text}
-            ]
-          }
-        ],
-        'turnComplete': true,
-      }
+      'realtimeInput': {
+        'text': text,
+      },
     };
 
     _channel!.sink.add(jsonEncode(payload));
@@ -200,7 +213,13 @@ Guidelines for spoken audio:
 
   void _handleServerMessage(dynamic message) {
     try {
-      final decoded = jsonDecode(message as String) as Map<String, dynamic>;
+      final raw = switch (message) {
+        String text => text,
+        List<int> bytes => utf8.decode(bytes),
+        _ => null,
+      };
+      if (raw == null || raw.isEmpty) return;
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
 
       if (decoded.containsKey('setupComplete')) {
         if (!(_setupCompleter?.isCompleted ?? true)) {
@@ -220,6 +239,10 @@ Guidelines for spoken audio:
 
       if (serverContent['interrupted'] == true) {
         _eventController.add(const LiveInterruptedEvent());
+      }
+
+      if (serverContent['turnComplete'] == true) {
+        _eventController.add(const LiveTurnCompleteEvent());
       }
 
       final inputTx = serverContent['inputTranscription'] as Map<String, dynamic>?;

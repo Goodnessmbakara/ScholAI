@@ -2,14 +2,14 @@ import 'dart:convert';
 import 'package:encrypt/encrypt.dart' as enc;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-/// Zero-Knowledge Client-Side Encryption Service for ScholAI.
-/// 
-/// Guarantees:
-/// - Journal entries are encrypted with AES-256 before leaving the device.
-/// - The encryption key is generated on-device and stored in hardware-backed storage
-///   (Android Keystore / iOS Keychain).
-/// - Cloud Firestore only receives encrypted ciphertext. Neither Firebase, Google,
-///   nor database administrators can read the student's private reflections.
+/// Client-side AES-256 encryption primitives for ScholAI.
+///
+/// Today no network payload is encrypted with this service — journal text is
+/// never written to Firestore, and habit/check-in data never leaves the
+/// device. This service exists (and is unit-tested) for any future
+/// encrypted-at-rest writes; the key lives in Android Keystore / iOS
+/// Keychain. `cryptographicallyWipeData` is wired to the Settings
+/// "Erase data on this device" action.
 class EncryptionService {
   EncryptionService._();
   static final instance = EncryptionService._();

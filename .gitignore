@@ -27,6 +27,9 @@
 *google-services.json
 *GoogleService-Info.plist
 
+# Firebase local cache / deploy artifacts
+.firebase/
+
 
 # Logs
 *.log

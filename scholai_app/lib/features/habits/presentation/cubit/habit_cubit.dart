@@ -2,6 +2,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:uuid/uuid.dart';
 import 'package:scholai_app/core/services/gemini_service.dart';
 import 'package:scholai_app/features/habits/data/habit_local_store.dart';
+import 'package:scholai_app/features/habits/domain/habit_insights.dart';
 import 'package:scholai_app/features/habits/domain/habit_models.dart';
 import 'package:scholai_app/features/habits/presentation/cubit/habit_state.dart';
 
@@ -31,14 +32,16 @@ class HabitCubit extends Cubit<HabitState> {
       final selected = await _store.loadSelectedHabits();
       final setupDone = await _store.isSetupDone();
       final logs = await _store.loadLogs();
+      final plans = await _ensurePlans(selected, await _store.loadPlans());
       if (isClosed) return;
       emit(
         state.copyWith(
           status: HabitStatus.ready,
           selectedHabits: selected,
+          plans: plans,
           setupDone: setupDone && selected.isNotEmpty,
           logs: logs,
-          stats: _store.computeStats(logs),
+          stats: _statsFor(selected, plans, logs),
         ),
       );
     } catch (e) {
@@ -55,13 +58,32 @@ class HabitCubit extends Cubit<HabitState> {
   Future<void> saveSelectedHabits(Set<HabitKind> habits) async {
     final list = habits.toList();
     await _store.saveSelectedHabits(list);
+    final plans = await _ensurePlans(list, state.plans);
     if (isClosed) return;
     emit(
       state.copyWith(
         selectedHabits: list,
+        plans: plans,
         setupDone: list.isNotEmpty,
         status: HabitStatus.ready,
+        stats: _statsFor(list, plans, state.logs),
         clearError: true,
+      ),
+    );
+  }
+
+  Future<void> savePlan(HabitPlan plan) async {
+    final next = [
+      for (final existing in state.plans)
+        if (existing.habit != plan.habit) existing,
+      plan,
+    ];
+    await _store.savePlans(next);
+    if (isClosed) return;
+    emit(
+      state.copyWith(
+        plans: next,
+        stats: _statsFor(state.selectedHabits, next, state.logs),
       ),
     );
   }
@@ -70,8 +92,11 @@ class HabitCubit extends Cubit<HabitState> {
     required HabitKind habit,
     required int intensity,
     required UrgeOutcome outcome,
+    UrgeTrigger? trigger,
+    PornAct pornAct = PornAct.none,
     String? note,
   }) async {
+    final plan = _planOrFallback(habit);
     final log = UrgeLog(
       id: _uuid.v4(),
       habit: habit,
@@ -79,6 +104,14 @@ class HabitCubit extends Cubit<HabitState> {
       outcome: outcome,
       loggedAt: DateTime.now(),
       note: note?.trim().isEmpty == true ? null : note?.trim(),
+      trigger: trigger,
+      pornAct: habit == HabitKind.pornUrges ? pornAct : PornAct.none,
+      countsAsSlip: slipCounts(
+        outcome: outcome,
+        habit: habit,
+        pornAct: pornAct,
+        plan: plan,
+      ),
     );
     await _store.addLog(log);
     final logs = await _store.loadLogs();
@@ -86,7 +119,7 @@ class HabitCubit extends Cubit<HabitState> {
     emit(
       state.copyWith(
         logs: logs,
-        stats: _store.computeStats(logs),
+        stats: _statsFor(state.selectedHabits, state.plans, logs),
         clearReflection: true,
       ),
     );
@@ -124,5 +157,49 @@ class HabitCubit extends Cubit<HabitState> {
   String _staticPromptFor(HabitKind habit, int intensity, UrgeOutcome outcome) {
     final seed = habit.index + intensity + outcome.index + DateTime.now().day;
     return staticPrompts[seed % staticPrompts.length];
+  }
+
+  HabitPlan _planOrFallback(HabitKind habit) {
+    for (final plan in state.plans) {
+      if (plan.habit == habit) return plan;
+    }
+    return HabitPlan.fallback(habit);
+  }
+
+  Future<List<HabitPlan>> _ensurePlans(
+    List<HabitKind> selected,
+    List<HabitPlan> existing,
+  ) async {
+    final next = [...existing];
+    var changed = false;
+    for (final kind in selected) {
+      if (next.any((plan) => plan.habit == kind)) continue;
+      next.add(HabitPlan.fallback(kind));
+      changed = true;
+    }
+    if (changed) await _store.savePlans(next);
+    return next;
+  }
+
+  HabitStats _statsFor(
+    List<HabitKind> selected,
+    List<HabitPlan> plans,
+    List<UrgeLog> logs,
+  ) {
+    if (selected.isEmpty) return HabitStats.empty;
+    final habit = selected.first;
+    HabitPlan? plan;
+    for (final item in plans) {
+      if (item.habit == habit) {
+        plan = item;
+        break;
+      }
+    }
+    return computeHabitStats(
+      logs: logs,
+      habit: habit,
+      plan: plan ?? HabitPlan.fallback(habit),
+      now: DateTime.now(),
+    );
   }
 }

@@ -4,18 +4,29 @@ import 'package:scholai_app/features/checkin/presentation/screens/checkin_screen
 import 'package:scholai_app/features/journal/presentation/screens/journal_screen.dart';
 import 'package:scholai_app/features/trends/presentation/screens/trends_screen.dart';
 import 'package:scholai_app/features/habits/presentation/screens/habit_picker_screen.dart';
+import 'package:scholai_app/features/habits/domain/habit_models.dart';
 import 'package:scholai_app/features/habits/presentation/screens/habits_screen.dart';
+import 'package:scholai_app/features/habits/presentation/screens/urge_timer_screen.dart';
 import 'package:scholai_app/features/crisis/presentation/screens/crisis_screen.dart';
 import 'package:scholai_app/features/live/presentation/screens/gemini_live_screen.dart';
 import 'package:scholai_app/features/settings/presentation/screens/settings_screen.dart';
+import 'package:scholai_app/features/pro/presentation/screens/pro_apply_screen.dart';
 import 'package:scholai_app/features/pro/presentation/screens/pro_request_form_screen.dart';
+import 'package:scholai_app/features/pro/presentation/screens/support_hub_screen.dart';
+import 'package:scholai_app/features/admin/presentation/screens/admin_console_screen.dart';
+import 'package:scholai_app/features/admin/presentation/screens/staff_chat_screen.dart';
 import 'package:scholai_app/features/pro/presentation/screens/pro_request_status_screen.dart';
 import 'package:scholai_app/features/pro/presentation/screens/pro_chat_screen.dart';
 import 'package:scholai_app/shared/widgets/main_shell.dart';
 
 class AppRouter {
+  static const resumePlaces = {'/home', '/journal', '/habits', '/trends'};
+
+  /// Set from the last session before [router] is first read.
+  static String initialLocation = '/onboarding';
+
   static final router = GoRouter(
-    initialLocation: '/onboarding',
+    initialLocation: initialLocation,
     routes: [
       GoRoute(
         path: '/onboarding',
@@ -43,6 +54,16 @@ class AppRouter {
         ],
       ),
       GoRoute(
+        path: '/habits/surf',
+        builder: (context, state) {
+          final habit = HabitKind.tryParse(
+                state.uri.queryParameters['habit'] ?? '',
+              ) ??
+              HabitKind.smoking;
+          return UrgeTimerScreen(habit: habit);
+        },
+      ),
+      GoRoute(
         path: '/habits/setup',
         builder: (context, state) {
           final edit = state.uri.queryParameters['edit'] == '1';
@@ -60,6 +81,25 @@ class AppRouter {
       GoRoute(
         path: '/settings',
         builder: (context, state) => const SettingsScreen(),
+      ),
+      GoRoute(
+        path: '/support',
+        builder: (context, state) => const SupportHubScreen(),
+      ),
+      GoRoute(
+        path: '/pro-apply',
+        builder: (context, state) => const ProApplyScreen(),
+      ),
+      GoRoute(
+        path: '/admin',
+        builder: (context, state) => const AdminConsoleScreen(),
+      ),
+      GoRoute(
+        path: '/admin/chat/:uid/:requestId',
+        builder: (context, state) => StaffChatScreen(
+          userId: state.pathParameters['uid']!,
+          requestId: state.pathParameters['requestId']!,
+        ),
       ),
       GoRoute(
         path: '/pro-request',

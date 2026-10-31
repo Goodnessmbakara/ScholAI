@@ -39,44 +39,69 @@ class ProRequestService {
     }
   }
 
-  CollectionReference<Map<String, dynamic>>? _userRequestsRef() {
+  CollectionReference<Map<String, dynamic>>? _requestsRefFor(String? uid) {
     final db = _db;
-    final uid = AuthService.instance.uid;
-    if (db == null || uid == null) return null;
+    if (db == null || uid == null || uid.isEmpty) return null;
     return db.collection('users').doc(uid).collection('proRequests');
   }
 
-  /// Returns seed roster, attempting Firestore `/professionals` first.
+  CollectionReference<Map<String, dynamic>>? _userRequestsRef() =>
+      _requestsRefFor(AuthService.instance.uid);
+
+  /// Approved professionals written by an admin. Empty until someone is approved.
   Future<List<Professional>> listProfessionals() async {
     final db = _db;
-    if (db != null) {
-      try {
-        final snap = await db.collection('professionals').get();
-        if (snap.docs.isNotEmpty) {
-          return snap.docs
-              .map((d) => Professional.fromMap(d.data(), id: d.id))
-              .toList();
-        }
-        // Soft-seed once when collection is empty (may fail under locked rules).
-        await _seedProfessionals(db);
-      } catch (e, stack) {
-        AppLogger.warning(
-          'Professionals Firestore read failed; using local seed',
-          error: e,
-          stackTrace: stack,
-        );
-      }
+    if (db == null) return const [];
+    try {
+      final snap = await db.collection('professionals').get();
+      return snap.docs
+          .map((d) => Professional.fromMap(d.data(), id: d.id))
+          .where((pro) => pro.id.isNotEmpty)
+          .toList();
+    } catch (e, stack) {
+      AppLogger.warning(
+        'Professionals Firestore read failed',
+        error: e,
+        stackTrace: stack,
+      );
+      return const [];
     }
-    return List.unmodifiable(kSeedProfessionals);
   }
 
-  Future<void> _seedProfessionals(FirebaseFirestore db) async {
-    final batch = db.batch();
-    for (final pro in kSeedProfessionals) {
-      batch.set(db.collection('professionals').doc(pro.id), pro.toMap());
+  Future<List<ProRequest>> listQueue() async {
+    final db = _db;
+    if (db == null) return const [];
+    final snap = await db.collectionGroup('proRequests').limit(40).get();
+    return snap.docs
+        .map((doc) {
+          final data = doc.data();
+          final parentUid = doc.reference.parent.parent?.id;
+          return ProRequest.fromMap(
+            {...data, if (data['userId'] == null && parentUid != null) 'userId': parentUid},
+            id: doc.id,
+          );
+        })
+        .toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  }
+
+  Future<void> assignProfessional({
+    required ProRequest request,
+    required Professional professional,
+  }) async {
+    final db = _db;
+    final uid = request.userId;
+    if (db == null || uid == null || uid.isEmpty) {
+      throw StateError('This request has no student account to update.');
     }
-    await batch.commit();
-    AppLogger.info('Seeded ${kSeedProfessionals.length} mock professionals.');
+    await db.collection('users').doc(uid).collection('proRequests').doc(request.id).update({
+      'status': ProRequestStatus.matched.wire,
+      'professionalId': professional.id,
+      'professionalName': professional.name,
+      'professionalRole': professional.role,
+      if (professional.phone != null) 'professionalPhone': professional.phone,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
   }
 
   Future<List<ProRequest>> listRequests() async {
@@ -114,12 +139,46 @@ class ProRequestService {
         );
       }
     }
-    final local = await _loadLocal();
-    try {
-      return local.firstWhere((r) => r.id == id);
-    } catch (_) {
-      return null;
+    return _localRequest(id);
+  }
+
+  /// Live updates for one request. Emits from Firestore when available so a
+  /// match or message written by staff appears without a manual refresh;
+  /// falls back to the local copy for offline/demo requests.
+  ///
+  /// Staff pass [forUid] — the student's user id — to watch a request that
+  /// lives under someone else's account. The local mirror only applies to
+  /// the caller's own requests.
+  Stream<ProRequest?> watchRequest(String id, {String? forUid}) async* {
+    final ref = _requestsRefFor(forUid ?? AuthService.instance.uid);
+    if (ref == null) {
+      yield forUid == null ? await getRequest(id) : null;
+      return;
     }
+    try {
+      await for (final doc in ref.doc(id).snapshots()) {
+        if (doc.exists && doc.data() != null) {
+          yield ProRequest.fromMap(doc.data()!, id: doc.id);
+        } else {
+          yield forUid == null ? await _localRequest(id) : null;
+        }
+      }
+    } catch (e, stack) {
+      AppLogger.warning(
+        'proRequest watch failed; using local copy',
+        error: e,
+        stackTrace: stack,
+      );
+      yield forUid == null ? await _localRequest(id) : null;
+    }
+  }
+
+  Future<ProRequest?> _localRequest(String id) async {
+    final local = await _loadLocal();
+    for (final r in local) {
+      if (r.id == id) return r;
+    }
+    return null;
   }
 
   /// Creates a pending request, then auto-matches a volunteer for MVP.
@@ -240,7 +299,7 @@ class ProRequestService {
         ChatMessage(
           text: current.professionalPhone != null
               ? 'Call requested. You can dial the volunteer now, or wait for a callback in your time window (${current.timeWindow}).'
-              : 'Call requested. ${current.professionalName ?? 'Your volunteer'} will call you back during ${current.timeWindow}. (No direct number on file — demo callback.)',
+              : 'Call requested. ${current.professionalName ?? 'Your volunteer'} will call you back during ${current.timeWindow}.',
           isUser: false,
           timestamp: DateTime.now(),
         ),
@@ -263,19 +322,6 @@ class ProRequestService {
       ChatMessage(text: text, isUser: isUser, timestamp: DateTime.now()),
     ];
 
-    // Simple local echo for MVP when user sends.
-    if (isUser) {
-      messages.add(
-        ChatMessage(
-          text:
-              'Thanks for sharing that. I\'m here with you — take your time. '
-              '(Demo reply · real matching comes later.)',
-          isUser: false,
-          timestamp: DateTime.now(),
-        ),
-      );
-    }
-
     var status = current.status;
     if (status == ProRequestStatus.matched || status == ProRequestStatus.pending) {
       status = ProRequestStatus.chatScheduled;
@@ -287,6 +333,51 @@ class ProRequestService {
       updatedAt: DateTime.now(),
     );
     await _persist(updated);
+    return updated;
+  }
+
+  /// Staff reply: appends a message to a request under another user's
+  /// account (`users/{userId}/proRequests/{requestId}`). Firestore rules
+  /// allow admin updates only — non-admins get a permission error, which
+  /// callers should surface as a snackbar.
+  Future<ProRequest> appendStaffMessage({
+    required String userId,
+    required String requestId,
+    required String text,
+  }) async {
+    final ref = _requestsRefFor(userId);
+    if (ref == null) {
+      throw StateError('Staff replies need a cloud-backed student account.');
+    }
+    final doc = await ref.doc(requestId).get();
+    if (!doc.exists || doc.data() == null) {
+      throw StateError('Request not found.');
+    }
+    final current = ProRequest.fromMap(doc.data()!, id: doc.id);
+
+    var status = current.status;
+    if (status == ProRequestStatus.matched ||
+        status == ProRequestStatus.pending) {
+      status = ProRequestStatus.chatScheduled;
+    }
+
+    final updated = current.copyWith(
+      messages: [
+        ...current.messages,
+        ChatMessage(
+          text: text,
+          isUser: false,
+          timestamp: DateTime.now(),
+        ),
+      ],
+      status: status,
+      updatedAt: DateTime.now(),
+    );
+
+    final data = updated.toMap();
+    data['createdAt'] = Timestamp.fromDate(updated.createdAt);
+    data['updatedAt'] = Timestamp.fromDate(updated.updatedAt);
+    await ref.doc(requestId).set(data, SetOptions(merge: true));
     return updated;
   }
 

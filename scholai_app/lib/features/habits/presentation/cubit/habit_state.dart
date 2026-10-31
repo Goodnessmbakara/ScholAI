@@ -7,6 +7,7 @@ class HabitState extends Equatable {
   final HabitStatus status;
   final bool setupDone;
   final List<HabitKind> selectedHabits;
+  final List<HabitPlan> plans;
   final List<UrgeLog> logs;
   final HabitStats stats;
   final String? reflectionPrompt;
@@ -17,6 +18,7 @@ class HabitState extends Equatable {
     this.status = HabitStatus.initial,
     this.setupDone = false,
     this.selectedHabits = const [],
+    this.plans = const [],
     this.logs = const [],
     this.stats = HabitStats.empty,
     this.reflectionPrompt,
@@ -28,6 +30,7 @@ class HabitState extends Equatable {
     HabitStatus? status,
     bool? setupDone,
     List<HabitKind>? selectedHabits,
+    List<HabitPlan>? plans,
     List<UrgeLog>? logs,
     HabitStats? stats,
     String? reflectionPrompt,
@@ -40,6 +43,7 @@ class HabitState extends Equatable {
       status: status ?? this.status,
       setupDone: setupDone ?? this.setupDone,
       selectedHabits: selectedHabits ?? this.selectedHabits,
+      plans: plans ?? this.plans,
       logs: logs ?? this.logs,
       stats: stats ?? this.stats,
       reflectionPrompt:
@@ -49,11 +53,19 @@ class HabitState extends Equatable {
     );
   }
 
+  HabitPlan planFor(HabitKind habit) {
+    for (final plan in plans) {
+      if (plan.habit == habit) return plan;
+    }
+    return HabitPlan.fallback(habit);
+  }
+
   @override
   List<Object?> get props => [
         status,
         setupDone,
         selectedHabits,
+        plans,
         logs,
         stats,
         reflectionPrompt,

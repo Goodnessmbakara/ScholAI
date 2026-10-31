@@ -1,12 +1,120 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Only authenticated users can access their own document sandbox
-    match /users/{userId}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+    function signedIn() {
+      return request.auth != null;
     }
 
-    // Deny all other access by default
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    // Keep in sync with kBootstrapSuperAdminEmails in the Flutter app.
+    function isBootstrap() {
+      return signedIn()
+        && request.auth.token.email is string
+        && (
+          request.auth.token.email.matches('(?i)^mbakaragoodness2003@gmail\\.com$')
+          || request.auth.token.email.matches('(?i)^amicablembakara50@gmail\\.com$')
+        );
+    }
+
+    function callerDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasRole(role) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && callerDoc().role == role;
+    }
+
+    function isSuperAdmin() {
+      return isBootstrap() || hasRole('superAdmin');
+    }
+
+    function isAdmin() {
+      return isSuperAdmin() || hasRole('admin');
+    }
+
+    function validRole(role) {
+      return role in ['student', 'professional', 'admin', 'superAdmin'];
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+
+      allow create: if isOwner(userId) && (
+        (isBootstrap() && request.resource.data.role == 'superAdmin')
+        || (!isBootstrap() && request.resource.data.role == 'student')
+      ) || isSuperAdmin() && validRole(request.resource.data.role)
+        || isAdmin() && request.resource.data.role == 'professional';
+
+      allow update: if isSuperAdmin() && validRole(request.resource.data.role)
+        || isOwner(userId) && request.resource.data.role == resource.data.role
+        || isOwner(userId) && isBootstrap() && request.resource.data.role == 'superAdmin'
+        || (isAdmin()
+            && resource.data.role == 'student'
+            && request.resource.data.role == 'professional');
+    }
+
+    // Journals, habits, and other private data stay on the owner's tree.
+    match /users/{userId}/{collection}/{document=**} {
+      allow read, write: if isOwner(userId);
+    }
+
+    match /users/{userId}/proRequests/{requestId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow update: if isAdmin();
+    }
+
+    match /professionalApplications/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+
+      allow create: if isOwner(userId)
+        && request.resource.data.uid == userId
+        && request.resource.data.status == 'pending';
+
+      allow update: if isOwner(userId)
+          && request.resource.data.uid == userId
+          && request.resource.data.status == 'pending'
+          && resource.data.status in ['pending', 'rejected']
+        || isAdmin();
+    }
+
+    match /professionals/{proId} {
+      allow read: if signedIn();
+      allow create, update: if isAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    match /conversationReports/{reportId} {
+      allow create: if signedIn()
+        && request.resource.data.reporterUid == request.auth.uid
+        && request.resource.data.status == 'open'
+        && request.resource.data.kind in ['aiJournal', 'aiLive', 'professional']
+        && request.resource.data.note is string
+        && request.resource.data.note.size() > 0
+        && request.resource.data.note.size() <= 1000
+        && request.resource.data.excerpt is string
+        && request.resource.data.excerpt.size() <= 3500
+        && request.resource.data.requestId is string
+        && request.resource.data.requestId.size() <= 120
+        && request.resource.data.counterpartName is string
+        && request.resource.data.counterpartName.size() <= 120
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.keys().hasOnly([
+          'reporterUid', 'kind', 'note', 'excerpt', 'requestId',
+          'counterpartName', 'status', 'createdAt'
+        ]);
+
+      allow read: if isAdmin();
+
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reviewedAt'])
+        && request.resource.data.status in ['open', 'reviewed'];
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

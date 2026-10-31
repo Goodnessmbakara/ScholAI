@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:scholai_app/core/theme/app_theme.dart';
+import 'package:scholai_app/features/account/data/account_service.dart';
+import 'package:scholai_app/features/checkin/data/checkin_local_store.dart';
 import 'package:scholai_app/features/checkin/presentation/widgets/mood_selector.dart';
 import 'package:scholai_app/features/checkin/presentation/widgets/category_chips.dart';
 
@@ -15,10 +17,43 @@ class CheckInScreen extends StatefulWidget {
 class _CheckInScreenState extends State<CheckInScreen> {
   int? _selectedMood;
   String? _selectedCategory;
+  bool _ready = false;
+  String _profileName = '';
 
   final List<String> _categories = [
     '📚 Exams', '💸 Money', '🏠 Family', '❤️ Relationships', '😴 Sleep', '🌀 Just overwhelmed',
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreToday();
+  }
+
+  Future<void> _restoreToday() async {
+    final draft = await CheckInLocalStore.instance.loadToday();
+    final profile = AccountService.instance.profile ??
+        await AccountService.instance.ensureProfile();
+    if (!mounted) return;
+    setState(() {
+      if (draft != null) {
+        _selectedMood = draft.mood;
+        _selectedCategory =
+            _categories.contains(draft.category) ? draft.category : null;
+      }
+      _profileName = (profile?.displayName ?? '').trim();
+      _ready = true;
+    });
+  }
+
+  Future<void> _remember() async {
+    final mood = _selectedMood;
+    if (mood == null) return;
+    await CheckInLocalStore.instance.saveToday(
+      mood: mood,
+      category: _selectedCategory,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -29,7 +64,7 @@ class _CheckInScreenState extends State<CheckInScreen> {
       backgroundColor: AppColors.surfaceDark,
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -42,7 +77,9 @@ class _CheckInScreenState extends State<CheckInScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '$greeting 👋',
+                          _profileName.isEmpty
+                              ? '$greeting 👋'
+                              : '$greeting, $_profileName 👋',
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                 color: AppColors.textSecondary,
                               ),
@@ -127,56 +164,68 @@ class _CheckInScreenState extends State<CheckInScreen> {
               ),
               const SizedBox(height: 28),
 
-              // Mood selector (5 emoji buttons)
-              MoodSelector(
-                onMoodSelected: (mood) => setState(() => _selectedMood = mood),
-                selectedMood: _selectedMood,
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (!_ready)
+                        const SizedBox(
+                          height: 80,
+                          child: Center(child: CircularProgressIndicator()),
+                        )
+                      else
+                        MoodSelector(
+                          onMoodSelected: (mood) {
+                            setState(() => _selectedMood = mood);
+                            _remember();
+                          },
+                          selectedMood: _selectedMood,
+                        ),
+                      if (_selectedMood != null) ...[
+                        const SizedBox(height: 32),
+                        Text(
+                          "What's most on your mind?",
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                color: AppColors.textSecondary,
+                              ),
+                        ),
+                        const SizedBox(height: 12),
+                        CategoryChips(
+                          categories: _categories,
+                          selected: _selectedCategory,
+                          onSelected: (cat) {
+                            setState(() => _selectedCategory = cat);
+                            _remember();
+                          },
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
-              const SizedBox(height: 32),
 
               if (_selectedMood != null) ...[
-                Text(
-                  "What's most on your mind?",
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: AppColors.textSecondary,
-                      ),
-                ),
                 const SizedBox(height: 12),
-                CategoryChips(
-                  categories: _categories,
-                  selected: _selectedCategory,
-                  onSelected: (cat) => setState(() => _selectedCategory = cat),
+                ElevatedButton(
+                  onPressed: _onSave,
+                  child: const Text('Save check-in'),
                 ),
-                const SizedBox(height: 32),
+                TextButton(
+                  onPressed: () => context.go('/journal'),
+                  child: const Text(
+                    'Want to talk about it?',
+                    style: TextStyle(color: AppColors.primary),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => context.push('/support'),
+                  child: const Text(
+                    'Talk to someone',
+                    style: TextStyle(color: AppColors.textSecondary),
+                  ),
+                ),
               ],
-
-              const Spacer(),
-
-              // CTA
-              if (_selectedMood != null)
-                Column(
-                  children: [
-                    ElevatedButton(
-                      onPressed: _onSave,
-                      child: const Text('Save check-in'),
-                    ),
-                    const SizedBox(height: 12),
-                    TextButton(
-                      onPressed: () => context.go('/journal'),
-                      child: const Text(
-                        'Want to talk about it?',
-                        style: TextStyle(color: AppColors.primary),
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: () => context.push('/pro-request'),
-                      child: const Text(
-                        'Talk to a human',
-                        style: TextStyle(color: AppColors.textSecondary),
-                      ),
-                    ),
-                  ],
-                ),
             ],
           ),
         ),
@@ -185,7 +234,14 @@ class _CheckInScreenState extends State<CheckInScreen> {
   }
 
   Future<void> _onSave() async {
-    if (_selectedMood == null) return;
+    final mood = _selectedMood;
+    if (mood == null) return;
+    await _remember();
+    await CheckInLocalStore.instance.recordEntry(
+      mood: mood,
+      category: _selectedCategory,
+    );
+    if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('✓ Logged! Have a good one.')),

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -20,13 +22,42 @@ class _ProRequestStatusScreenState extends State<ProRequestStatusScreen> {
   bool _loading = true;
   bool _busy = false;
   String? _error;
+  StreamSubscription<ProRequest?>? _sub;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _sub = ProRequestService.instance
+        .watchRequest(widget.requestId)
+        .listen(
+          _onRequest,
+          onError: (_) {
+            if (!mounted) return;
+            setState(() {
+              _loading = false;
+              _error = 'Could not load request.';
+            });
+          },
+        );
   }
 
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  void _onRequest(ProRequest? req) {
+    if (!mounted) return;
+    setState(() {
+      _request = req;
+      _loading = false;
+      _error = req == null ? 'Request not found.' : null;
+    });
+  }
+
+  /// One-shot refresh for the app-bar button — the stream already keeps this
+  /// screen live, but this re-reads the local copy when offline.
   Future<void> _load() async {
     setState(() {
       _loading = true;

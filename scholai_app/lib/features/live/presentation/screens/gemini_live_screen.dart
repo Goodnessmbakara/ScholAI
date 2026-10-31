@@ -8,6 +8,8 @@ import 'package:record/record.dart';
 import 'package:scholai_app/core/services/gemini_live_service.dart';
 import 'package:scholai_app/core/theme/scholai_colors.dart';
 import 'package:scholai_app/core/utils/pcm_wav.dart';
+import 'package:scholai_app/features/safety/domain/conversation_report.dart';
+import 'package:scholai_app/features/safety/presentation/report_conversation_sheet.dart';
 import 'package:scholai_app/shared/widgets/scholai_mark.dart';
 
 /// Gemini Live Audio Sanctuary — real-time voice decompression for students.
@@ -37,7 +39,13 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
   bool _micStarting = false;
 
   final BytesBuilder _pcmBuffer = BytesBuilder(copy: false);
+  final List<Uint8List> _playQueue = [];
   Timer? _playbackFlushTimer;
+  bool _draining = false;
+  bool _voiced = false;
+  int _quietMs = 0;
+  String _heardLine = '';
+  String _replyLine = '';
 
   final _quickPrompts = [
     'Exams are overwhelming me',
@@ -76,22 +84,29 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
           });
         case LiveAudioReceivedEvent(:final audioBytes):
           _enqueuePcm(audioBytes);
-          setState(() {
-            _status = 'Scholly is speaking...';
-            _isSpeaking = true;
-          });
         case LiveTranscriptReceivedEvent(:final text, :final isUser):
           setState(() {
-            _liveSubtitle = text;
-            _status = isUser ? 'Scholly is listening...' : 'Scholly is speaking...';
+            if (isUser) {
+              _heardLine = _mergeTranscript(_heardLine, text);
+              _liveSubtitle = _heardLine;
+              _status = 'Hearing you...';
+            } else {
+              _replyLine = _mergeTranscript(_replyLine, text);
+              _liveSubtitle = _replyLine;
+              _status = 'Scholly is speaking...';
+            }
             _isSpeaking = !isUser;
           });
         case LiveInterruptedEvent():
           _pcmBuffer.clear();
+          _playQueue.clear();
+          unawaited(_player.stop());
           setState(() {
             _isSpeaking = false;
             _status = _isMuted ? 'Listening to you...' : 'Mic on — speak freely';
           });
+        case LiveTurnCompleteEvent():
+          unawaited(_flushPlayback());
         case LiveCrisisDetectedEvent():
           unawaited(_stopMicStreaming());
           context.go('/crisis');
@@ -111,21 +126,45 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
 
   void _enqueuePcm(Uint8List chunk) {
     _pcmBuffer.add(chunk);
+    // 24 kHz, 16-bit mono: 12 KB is about a quarter second.
+    // Start that slice now instead of waiting for the whole reply.
+    if (_pcmBuffer.length >= 12000) {
+      _playQueue.add(pcmToWav(_pcmBuffer.takeBytes(), sampleRate: 24000));
+      unawaited(_drainPlayback());
+    }
     _playbackFlushTimer?.cancel();
-    // Coalesce small Live packets into a playable WAV burst.
-    _playbackFlushTimer = Timer(const Duration(milliseconds: 280), _flushPlayback);
+    _playbackFlushTimer = Timer(const Duration(milliseconds: 280), () {
+      unawaited(_flushPlayback());
+    });
   }
 
   Future<void> _flushPlayback() async {
+    _playbackFlushTimer?.cancel();
     if (_pcmBuffer.isEmpty) return;
-    final pcm = _pcmBuffer.toBytes();
-    _pcmBuffer.clear();
-    final wav = pcmToWav(pcm, sampleRate: 24000);
-    try {
-      await _player.play(BytesSource(wav, mimeType: 'audio/wav'));
-    } catch (_) {
-      // Playback is best-effort on demo devices.
+    _playQueue.add(pcmToWav(_pcmBuffer.takeBytes(), sampleRate: 24000));
+    await _drainPlayback();
+  }
+
+  Future<void> _drainPlayback() async {
+    if (_draining) return;
+    _draining = true;
+    while (_playQueue.isNotEmpty) {
+      final wav = _playQueue.removeAt(0);
+      try {
+        await _player.play(BytesSource(wav, mimeType: 'audio/wav'));
+        await _player.onPlayerComplete.first.timeout(const Duration(seconds: 45));
+      } catch (_) {
+        // Playback is best-effort on demo devices.
+      }
     }
+    _draining = false;
+    if (!mounted) return;
+    setState(() {
+      _isSpeaking = false;
+      if (_connected) {
+        _status = _isMuted ? 'Listening... Tap a prompt or unmute to talk' : 'Mic on — speak freely';
+      }
+    });
   }
 
   Future<void> _toggleMute() async {
@@ -175,17 +214,19 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
           encoder: AudioEncoder.pcm16bits,
           sampleRate: 16000,
           numChannels: 1,
+          echoCancel: true,
+          audioInterruption: AudioInterruptionMode.none,
+          streamBufferSize: 3200,
         ),
       );
 
       // Mark unmuted before chunks arrive so the first packets are sent.
       _isMuted = false;
+      _voiced = false;
+      _quietMs = 0;
 
       _micSub = stream.listen(
-        (chunk) {
-          if (_isMuted || !_connected || chunk.isEmpty) return;
-          _service.sendAudioChunk(chunk);
-        },
+        _onMicChunk,
         onError: (_) {
           if (!mounted) return;
           setState(() {
@@ -218,6 +259,50 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
     }
   }
 
+  void _onMicChunk(Uint8List chunk) {
+    if (_isMuted || !_connected || chunk.isEmpty || _draining) return;
+    _service.sendAudioChunk(chunk);
+
+    final loud = _peakPcm(chunk) > 1400;
+    if (loud) {
+      if (!_voiced && mounted) {
+        _heardLine = '';
+        setState(() => _status = 'Hearing you...');
+      }
+      _voiced = true;
+      _quietMs = 0;
+      return;
+    }
+    if (!_voiced) return;
+
+    _quietMs += (chunk.length * 1000) ~/ 32000;
+    if (_quietMs < 550) return;
+    _service.endAudioStream();
+    _voiced = false;
+    _quietMs = 0;
+    if (!mounted) return;
+    setState(() => _status = 'Scholly is reflecting...');
+  }
+
+  int _peakPcm(Uint8List chunk) {
+    var peak = 0;
+    final data = ByteData.sublistView(chunk);
+    for (var i = 0; i + 1 < chunk.length; i += 2) {
+      final sample = data.getInt16(i, Endian.little).abs();
+      if (sample > peak) peak = sample;
+    }
+    return peak;
+  }
+
+  String _mergeTranscript(String current, String next) {
+    final incoming = next.trim();
+    if (incoming.isEmpty) return current;
+    if (current.isEmpty || incoming.startsWith(current)) return incoming;
+    if (current.endsWith(incoming)) return current;
+    final gap = current.endsWith(' ') || incoming.startsWith(' ') ? '' : ' ';
+    return '$current$gap$incoming';
+  }
+
   Future<void> _stopMicStreaming() async {
     await _micSub?.cancel();
     _micSub = null;
@@ -228,6 +313,7 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
     } catch (_) {
       // Best-effort stop on teardown.
     }
+    _service.endAudioStream();
   }
 
   @override
@@ -306,7 +392,15 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
                       ],
                     ),
                   ),
-                  const SizedBox(width: 48),
+                  IconButton(
+                    tooltip: 'Report this conversation',
+                    icon: Icon(Icons.flag_outlined, color: colors.textSecondary),
+                    onPressed: () => showReportConversationSheet(
+                      context,
+                      kind: ConversationKind.aiLive,
+                      excerpt: _liveSubtitle,
+                    ),
+                  ),
                 ],
               ),
               const Spacer(),

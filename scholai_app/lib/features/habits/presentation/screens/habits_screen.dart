@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:scholai_app/core/theme/app_theme.dart';
+import 'package:scholai_app/features/habits/domain/habit_insights.dart';
 import 'package:scholai_app/features/habits/domain/habit_models.dart';
 import 'package:scholai_app/features/habits/presentation/cubit/habit_cubit.dart';
 import 'package:scholai_app/features/habits/presentation/cubit/habit_state.dart';
@@ -19,6 +20,10 @@ class _HabitsScreenState extends State<HabitsScreen> {
   HabitKind? _habit;
   double _intensity = 3;
   UrgeOutcome _outcome = UrgeOutcome.rodeItOut;
+  UrgeTrigger? _trigger;
+  PornAct _pornAct = PornAct.porn;
+  String _reasonDraft = '';
+  HabitKind? _reasonHabit;
 
   @override
   void initState() {
@@ -31,12 +36,33 @@ class _HabitsScreenState extends State<HabitsScreen> {
     });
   }
 
+  void _captureReason(HabitKind habit, HabitPlan plan) {
+    if (_reasonHabit == habit) return;
+    _reasonHabit = habit;
+    _reasonDraft = plan.reason;
+  }
+
+  Future<void> _openTimer(HabitKind habit, HabitPlan plan) async {
+    final cubit = context.read<HabitCubit>();
+    await cubit.savePlan(plan.copyWith(reason: _reasonDraft.trim()));
+    if (!mounted) return;
+    final message = await context.push<String>(
+      '/habits/surf?habit=${habit.id}',
+    );
+    if (!mounted || message == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   Future<void> _submitLog(HabitKind habit) async {
     final cubit = context.read<HabitCubit>();
     await cubit.logUrge(
       habit: habit,
       intensity: _intensity.round(),
       outcome: _outcome,
+      trigger: _trigger,
+      pornAct: _outcome == UrgeOutcome.actedOn && habit == HabitKind.pornUrges
+          ? _pornAct
+          : PornAct.none,
     );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -88,6 +114,18 @@ class _HabitsScreenState extends State<HabitsScreen> {
             final HabitKind? activeHabit = (_habit != null && habits.contains(_habit))
                 ? _habit
                 : (habits.isEmpty ? null : habits.first);
+            if (activeHabit == null) {
+              return const SizedBox.shrink();
+            }
+            final plan = state.planFor(activeHabit);
+            _captureReason(activeHabit, plan);
+            final stats = computeHabitStats(
+              logs: state.logs,
+              habit: activeHabit,
+              plan: plan,
+              now: DateTime.now(),
+            );
+            final pattern = computeUrgePattern(state.logs, activeHabit);
 
             return ListView(
               padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
@@ -113,7 +151,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Log the urge. Reflect if you want. No streaks of shame.',
+                  'Five minutes when it hits. Your best run stays either way.',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: AppColors.textSecondary,
                       ),
@@ -121,10 +159,18 @@ class _HabitsScreenState extends State<HabitsScreen> {
                 const SizedBox(height: 14),
                 _DisclaimerBanner(),
                 const SizedBox(height: 20),
-                _StatsRow(stats: state.stats),
+                _StatsRow(stats: stats),
+                const SizedBox(height: 16),
+                _PatternCard(pattern: pattern),
+                const SizedBox(height: 20),
+                ElevatedButton.icon(
+                  onPressed: () => _openTimer(activeHabit, plan),
+                  icon: const Icon(Icons.timer_outlined),
+                  label: const Text('Urge is here · 5 min'),
+                ),
                 const SizedBox(height: 28),
                 Text(
-                  'Log an urge',
+                  'This area',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: AppColors.textPrimary,
                         fontWeight: FontWeight.w600,
@@ -139,7 +185,18 @@ class _HabitsScreenState extends State<HabitsScreen> {
                       ChoiceChip(
                         label: Text(h.label),
                         selected: activeHabit == h,
-                        onSelected: (_) => setState(() => _habit = h),
+                        onSelected: (selected) {
+                          if (!selected || h == activeHabit) return;
+                          if (_reasonDraft.trim() != plan.reason.trim()) {
+                            context.read<HabitCubit>().savePlan(
+                                  plan.copyWith(reason: _reasonDraft.trim()),
+                                );
+                          }
+                          setState(() {
+                            _habit = h;
+                            _reasonHabit = null;
+                          });
+                        },
                         selectedColor: AppColors.primary.withValues(alpha: 0.35),
                         backgroundColor: AppColors.surfaceCard,
                         labelStyle: TextStyle(
@@ -156,7 +213,80 @@ class _HabitsScreenState extends State<HabitsScreen> {
                       ),
                   ],
                 ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    for (final aim in HabitAim.values) ...[
+                      Expanded(
+                        child: _OutcomeButton(
+                          label: aim.label,
+                          selected: plan.aim == aim,
+                          onTap: () => context.read<HabitCubit>().savePlan(
+                                plan.copyWith(aim: aim),
+                              ),
+                        ),
+                      ),
+                      if (aim != HabitAim.values.last) const SizedBox(width: 10),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  plan.aim.hint,
+                  style: const TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
+                ),
+                if (activeHabit == HabitKind.pornUrges) ...[
+                  const SizedBox(height: 8),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: plan.masturbationCountsAsSlip,
+                    activeThumbColor: AppColors.primaryLight,
+                    title: const Text(
+                      'Masturbation on its own counts as a slip',
+                      style: TextStyle(color: AppColors.textPrimary, fontSize: 14),
+                    ),
+                    subtitle: const Text(
+                      'Off means only porn ends a stop run. You choose.',
+                      style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                    ),
+                    onChanged: (value) => context.read<HabitCubit>().savePlan(
+                          plan.copyWith(masturbationCountsAsSlip: value),
+                        ),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                TextFormField(
+                  key: ValueKey(activeHabit),
+                  initialValue: plan.reason,
+                  maxLength: 140,
+                  textCapitalization: TextCapitalization.sentences,
+                  style: const TextStyle(color: AppColors.textPrimary),
+                  decoration: const InputDecoration(
+                    labelText: 'Reason this matters',
+                    hintText: 'Shown during the five minutes',
+                    counterText: '',
+                  ),
+                  onChanged: (value) => _reasonDraft = value,
+                  onEditingComplete: () {
+                    context.read<HabitCubit>().savePlan(
+                          plan.copyWith(reason: _reasonDraft.trim()),
+                        );
+                    FocusScope.of(context).unfocus();
+                  },
+                ),
                 const SizedBox(height: 24),
+                Text(
+                  'Or log it now',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+                const SizedBox(height: 12),
                 Text(
                   'Intensity · ${_intensity.round()}',
                   style: const TextStyle(
@@ -202,16 +332,57 @@ class _HabitsScreenState extends State<HabitsScreen> {
                     ),
                   ],
                 ),
+                if (_outcome == UrgeOutcome.actedOn &&
+                    activeHabit == HabitKind.pornUrges) ...[
+                  const SizedBox(height: 12),
+                  _OutcomeButton(
+                    label: 'Porn',
+                    selected: _pornAct == PornAct.porn,
+                    onTap: () => setState(() => _pornAct = PornAct.porn),
+                  ),
+                  const SizedBox(height: 8),
+                  _OutcomeButton(
+                    label: plan.masturbationCountsAsSlip
+                        ? 'Masturbation without porn'
+                        : 'Masturbation without porn — not a slip',
+                    selected: _pornAct == PornAct.masturbationOnly,
+                    onTap: () => setState(() => _pornAct = PornAct.masturbationOnly),
+                  ),
+                ],
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final trigger in UrgeTrigger.values)
+                      ChoiceChip(
+                        label: Text(trigger.label),
+                        selected: _trigger == trigger,
+                        onSelected: (_) => setState(() => _trigger = trigger),
+                        selectedColor: AppColors.primary.withValues(alpha: 0.35),
+                        backgroundColor: AppColors.surfaceCard,
+                        labelStyle: TextStyle(
+                          color: _trigger == trigger
+                              ? AppColors.textPrimary
+                              : AppColors.textSecondary,
+                          fontSize: 13,
+                        ),
+                        side: BorderSide(
+                          color: _trigger == trigger
+                              ? AppColors.primary
+                              : AppColors.textMuted.withValues(alpha: 0.3),
+                        ),
+                      ),
+                  ],
+                ),
                 const SizedBox(height: 20),
                 ElevatedButton(
-                  onPressed: activeHabit == null
-                      ? null
-                      : () => _submitLog(activeHabit),
+                  onPressed: () => _submitLog(activeHabit),
                   child: const Text('Save log'),
                 ),
                 const SizedBox(height: 10),
                 OutlinedButton(
-                  onPressed: activeHabit == null || state.reflectionLoading
+                  onPressed: state.reflectionLoading
                       ? null
                       : () => _reflect(activeHabit),
                   style: OutlinedButton.styleFrom(
@@ -304,6 +475,47 @@ class _HabitsScreenState extends State<HabitsScreen> {
   }
 }
 
+class _PatternCard extends StatelessWidget {
+  const _PatternCard({required this.pattern});
+
+  final UrgePattern pattern;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceCard,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'PATTERN',
+            style: TextStyle(
+              color: AppColors.accentLight,
+              fontWeight: FontWeight.w700,
+              fontSize: 11,
+              letterSpacing: 0.6,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            pattern.summary,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              height: 1.4,
+              fontSize: 14,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _DisclaimerBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -346,15 +558,15 @@ class _StatsRow extends StatelessWidget {
         const SizedBox(width: 10),
         Expanded(
           child: _StatCard(
-            label: 'Day streak',
+            label: stats.abstinenceStreak ? 'This run' : 'Check-ins',
             value: '${stats.currentStreakDays}',
           ),
         ),
         const SizedBox(width: 10),
         Expanded(
           child: _StatCard(
-            label: 'Today',
-            value: '${stats.todayLogCount}',
+            label: 'Best',
+            value: '${stats.bestStreakDays}',
           ),
         ),
       ],
@@ -478,7 +690,8 @@ class _LogTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '$time · intensity ${log.intensity}',
+                    '$time · intensity ${log.intensity}'
+                    '${log.trigger == null ? '' : ' · ${log.trigger!.label}'}',
                     style: const TextStyle(
                       color: AppColors.textMuted,
                       fontSize: 11,
@@ -488,7 +701,7 @@ class _LogTile extends StatelessWidget {
               ),
             ),
             Text(
-              log.outcome.label,
+              log.outcomeLabel,
               style: TextStyle(
                 color: log.outcome == UrgeOutcome.rodeItOut
                     ? AppColors.accentLight

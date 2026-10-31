@@ -1,114 +1,95 @@
 # ScholAI — Security & Privacy Architecture Spec
 
-**Version:** 1.0  
-**Security Level:** Zero-Knowledge, Zero-PII  
-**Target:** DevFest Ibadan 2026 / Institutional Privacy Review  
+**Version:** 1.1 (corrected to match shipped code)
+**Target:** DevFest Ibadan 2026 / Institutional Privacy Review
 
 ---
 
 ## 1. Threat Model & Cultural Context
 
-In Nigerian university settings, mental health carries heavy social and institutional stigma. If a student's personal distress reflections were ever exposed to peers, lecturers, or university administrators, the consequences could include social ostracization, academic discrimination, or victim-blaming.
+In Nigerian university settings, mental health carries heavy social and
+institutional stigma. If a student's personal distress reflections were ever
+exposed to peers, lecturers, or university administrators, the consequences
+could include social ostracization, academic discrimination, or victim-blaming.
 
-**Our Core Security Thesis:**  
-> ScholAI is architected so that **even if our entire cloud database is compromised, an attacker learns zero names and cannot read a single journal entry.**
+**Security posture (as actually implemented):**
 
----
-
-## 2. The 5 Pillars of ScholAI Security
-
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│ 1. ZERO PII IDENTITY                                                   │
-│    No names, emails, phones, or student matriculation numbers.         │
-│    Ephemeral Anonymous Firebase Auth token only.                       │
-├────────────────────────────────────────────────────────────────────────┤
-│ 2. ZERO-KNOWLEDGE CLIENT-SIDE ENCRYPTION (AES-256)                     │
-│    Journal text encrypted on-device before writing to Cloud Firestore. │
-│    Key stored in hardware enclave (Android Keystore / iOS Keychain).   │
-├────────────────────────────────────────────────────────────────────────┤
-│ 3. ENTERPRISE AI PRIVACY GUARANTEES                                    │
-│    Gemini API terms strictly prohibit training on developer inputs.    │
-│    Prompts are never used to train Google foundation models.           │
-├────────────────────────────────────────────────────────────────────────┤
-│ 4. STRICT DATABASE AUTHORIZATION (Firestore Rules)                     │
-│    Users can ONLY read/write documents where request.auth.uid == uid.   │
-│    No cross-collection listing or indexing permissions.                │
-├────────────────────────────────────────────────────────────────────────┤
-│ 5. CRYPTOGRAPHIC DATA WIPE                                             │
-│    One-tap deletion permanently destroys the local AES key, rendering   │
-│    all remote ciphertext permanently unrecoverable mathematical noise. │
-└────────────────────────────────────────────────────────────────────────┘
-```
+- The journal transcript is **never written to ScholAI's own database**. It
+  exists only in memory on the device and inside the Gemini API request/response.
+- Sensitive state (habit plans, urge logs, saved check-ins, onboarding flag,
+  local mirror of support requests) lives in app-private storage on the device.
+- Cloud Firestore holds only: the anonymous account record, FCM tokens,
+  support requests (explicitly consented as non-anonymous), professional
+  applications/listings, and conversation abuse reports.
 
 ---
 
-## 3. Detailed Security Implementations
+## 2. Identity & PII
 
-### 3.1 Client-Side AES-256 Encryption (`EncryptionService`)
-- Implemented in: [`lib/core/services/encryption_service.dart`](file:///Users/abba/Desktop/ScholAI/scholai_app/lib/core/services/encryption_service.dart)
-- Every user's device generates a cryptographically secure 256-bit AES master key upon initialization (`SecureRandom(32)`).
-- The key is saved exclusively in the device's secure enclave:
-  - **Android**: `EncryptedSharedPreferences` backed by hardware **Android Keystore**.
-  - **iOS**: **Keychain** with `KeychainAccessibility.first_unlock`.
-- Each journal message is encrypted with a distinct, randomly generated **16-byte Initialization Vector (IV)** to prevent pattern/frequency cryptanalysis.
+- Anonymous Firebase Auth by default — no name, email, or phone required.
+- Optional "Continue with Google" links the Google account to the *same*
+  Firebase UID, so cloud data follows the account across devices.
+- Support requests are **not anonymous by design** — the intake form requires
+  explicit consent, and the topic/note/contact preference are visible to the
+  matched volunteer and platform admins.
 
-#### What Firestore Actually Stores:
-```json
-{
-  "ciphertext": "6p8s9K1FzD...a9x0=",
-  "iv": "v8T9q1L2...z0A=",
-  "timestamp": 1728416400000,
-  "category": "Exams"
-}
-```
-*Neither Google, Firebase engineers, nor database admins have the key to decrypt this ciphertext.*
+## 3. Gemini data flow (honest version)
 
----
+- Journal messages, urge-reflection prompts (habit + intensity + outcome),
+  and live voice audio are sent to the **unpaid Gemini Developer API**.
+- Under Google's current unpaid-service terms, Google **may** use those
+  inputs to improve its products and human reviewers may read them after
+  de-identification. The in-app privacy policy states this plainly; students
+  should not type or say things they need kept from that process.
+- ScholAI keeps no server-side copy of journal text or audio.
 
-### 3.2 Cloud Firestore Security Rules
-```javascript
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    // Only authenticated users can access their own document sandbox
-    match /users/{userId}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-    }
-    
-    // Deny all other access by default
-    match /{document=**} {
-      allow read, write: if false;
-    }
-  }
-}
-```
+## 4. Firestore authorization
 
----
+`firestore.rules` enforces, server-side:
 
-### 3.3 Gemini API Privacy Policy
-Unlike consumer tools (ChatGPT web or consumer Gemini), Google's **Gemini Developer API** operates under enterprise terms:
-1. Google **does not** use API customer prompts or responses to train Gemini foundation models.
-2. Data in transit is secured with **TLS 1.3**.
-3. ScholAI does not store conversational session history on external servers.
+- `users/{uid}` — read by owner or admins; role changes restricted so an
+  owner can never change their own role.
+- `users/{uid}/**` private subcollections — owner-only read/write.
+- `users/{uid}/proRequests/{id}` — owner + admins read; admins may update
+  (assignment, staff replies). Only admins can mutate another user's request.
+- `professionalApplications/{uid}` — owner creates/updates only while
+  `pending`; admins review.
+- `professionals` — any signed-in user reads the roster; only admins write.
+- `conversationReports` — shape-validated create (reporter = caller, bounded
+  field sizes, status `open`); admins read and mark `reviewed`.
+- Catch-all `match /{document=**}` — default deny.
 
----
+## 5. On-device encryption
 
-### 3.4 Local Privacy & Logging (`AppLogger`)
-- Implemented in: [`lib/core/utils/app_logger.dart`](file:///Users/abba/Desktop/ScholAI/scholai_app/lib/core/utils/app_logger.dart)
-- `kReleaseMode` automatically suppresses all verbose and debug logs.
-- Strict development guideline: Emotional text and journal content are **never** passed into log statements or crash reporting tools.
+`EncryptionService` (AES-256-CBC, random IV per record, key in Android
+Keystore / iOS Keychain) exists and is unit-tested for any future
+encrypted-at-rest cloud writes. Today **no network payload uses it** —
+nothing sensitive is written to the cloud to begin with. Its
+`cryptographicallyWipeData()` is wired to Settings → "Erase data on this
+device".
 
----
+## 6. Local data & backups
 
-### 3.5 Cryptographic Wipe (Self-Destruct)
-If a student wishes to delete their history:
-1. `EncryptionService.instance.cryptographicallyWipeData()` wipes the master key from the device's secure enclave.
-2. Even if remote Firestore records take seconds to delete over slow networks, they become mathematically impossible to decipher immediately.
+- `android:allowBackup="false"` — habit logs, check-in history, and the local
+  request mirror cannot be extracted via `adb backup` or auto-restore.
+- `AppLogger` suppresses debug logs in release builds; journal/emotional text
+  is never passed to log statements by convention.
+- Local notifications and the daily reminder are scheduled on-device; the FCM
+  token is stored under the user's own doc for the messaging service only.
 
----
+## 7. Known limitations & recommended follow-ups
 
-## 4. Test Verification
-The encryption engine is actively verified by the test suite:
-- **Test File:** [`test/unit/encryption_test.dart`](file:///Users/abba/Desktop/ScholAI/scholai_app/test/unit/encryption_test.dart)
-- Verified: Correct plaintext recovery, distinct IV generation per message, and tamper resistance against invalid keys.
+| Risk | Status | Mitigation |
+|------|--------|------------|
+| Gemini API key ships inside the app bundle (`.env` asset or `--dart-define`) | Accepted for MVP | Restrict the key by Android app signature in Google Cloud; longer-term, move to Firebase AI Logic + App Check or a Cloud Functions proxy |
+| No Firebase App Check | Open | Enable App Check + Play Integrity to stop Firestore abuse from outside the app |
+| Support-request creation has no rate limit | Open | App Check (above); optionally a Cloud Function gate |
+| Anonymous UID is the only auth boundary | By design | A stolen device + unlocked app = readable local data; OS-level lock is the mitigation |
+| Staff replies are plaintext on the student doc | By design | Support threads are non-anonymous; do not share clinical detail there |
+
+## 8. Test verification
+
+- `test/unit/encryption_test.dart` — AES round-trip, unique IVs, wrong-key
+  tamper failure.
+- `test/unit/platform_role_test.dart` — role parsing + bootstrap admin gates.
+- `test/unit/crisis_detection_test.dart` — crisis keyword divert coverage.

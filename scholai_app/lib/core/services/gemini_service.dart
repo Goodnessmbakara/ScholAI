@@ -5,28 +5,45 @@ import 'package:scholai_app/core/utils/crisis_detection.dart';
 
 /// Wraps the Gemini Flash API for ScholAI's reflective journaling.
 ///
-/// Performance & Latency optimizations:
-/// - Uses `gemini-flash-latest` (currently Gemini 3.8 Flash) for low latency.
-/// - Provides `sendMessageStream` for real-time token streaming.
-/// - Hard-bounded `maxOutputTokens: 150` to keep replies short.
+/// Text calls use `gemini-3.8-flash`. If that model is overloaded or retired,
+/// the next call falls back to `gemini-3.6-flash`, which still answers the
+/// same generateContent request. Thinking tokens count against
+/// `maxOutputTokens`; 150 cut the visible reply off mid-sentence.
 class GeminiService {
   GeminiService._();
   static final instance = GeminiService._();
 
+  static const _modelIds = ['gemini-3.8-flash', 'gemini-3.6-flash'];
+
   GenerativeModel? _model;
+  var _modelIndex = 0;
 
   bool get hasApiKey => AppConfig.hasGeminiApiKey;
 
   GenerativeModel get _generativeModel {
     return _model ??= GenerativeModel(
-      model: 'gemini-flash-latest',
+      model: _modelIds[_modelIndex],
       apiKey: AppConfig.geminiApiKey,
       systemInstruction: Content.text(_systemPrompt),
-      generationConfig: GenerationConfig(
-        temperature: 0.7,
-        maxOutputTokens: 150,
-      ),
+      generationConfig: GenerationConfig(maxOutputTokens: 1024),
     );
+  }
+
+  bool _canFallback(Object error) {
+    if (_modelIndex >= _modelIds.length - 1) return false;
+    if (error is InvalidApiKey || error is UnsupportedUserLocation) {
+      return false;
+    }
+    return error is GenerativeAIException;
+  }
+
+  void _useNextModel() {
+    if (_modelIndex >= _modelIds.length - 1) return;
+    AppLogger.warning(
+      'Gemini ${_modelIds[_modelIndex]} unavailable, switching to ${_modelIds[_modelIndex + 1]}.',
+    );
+    _modelIndex++;
+    _model = null;
   }
 
   /// Start a new journaling session with an opening message from the user.
@@ -88,38 +105,75 @@ If the topic involves self-harm or suicide, reply exactly: [CRISIS_SIGNAL]
 ''';
 
     try {
-      final response =
-          await _generativeModel.generateContent([Content.text(prompt)]);
-      final text = response.text?.trim() ?? '';
-      if (text.isEmpty || _containsCrisisSignal(text) || text.contains('[CRISIS_SIGNAL]')) {
+      return _reflectionFrom(
+        await _generativeModel.generateContent([Content.text(prompt)]),
+      );
+    } catch (e, stack) {
+      if (!_canFallback(e)) {
+        AppLogger.error('Urge reflection failed', error: e, stackTrace: stack);
         return null;
       }
-      return text;
-    } catch (e, stack) {
-      AppLogger.error('Urge reflection failed', error: e, stackTrace: stack);
-      return null;
+      _useNextModel();
+      try {
+        return _reflectionFrom(
+          await _generativeModel.generateContent([Content.text(prompt)]),
+        );
+      } catch (e2, stack2) {
+        AppLogger.error('Urge reflection failed', error: e2, stackTrace: stack2);
+        return null;
+      }
     }
   }
 
-  /// Fallback one-shot message for non-streaming environments.
-  Future<GeminiResponse> sendMessage(ChatSession session, String userMessage) async {
+  String? _reflectionFrom(GenerateContentResponse response) {
+    final text = response.text?.trim() ?? '';
+    if (text.isEmpty ||
+        _containsCrisisSignal(text) ||
+        text.contains('[CRISIS_SIGNAL]')) {
+      return null;
+    }
+    return text;
+  }
+
+  /// One-shot journal turn. [session] may be replaced when the active model
+  /// fails and the turn is retried on the fallback model.
+  Future<({GeminiResponse response, ChatSession session})> sendMessage(
+    ChatSession session,
+    String userMessage,
+  ) async {
     if (_containsCrisisSignal(userMessage)) {
-      return const CrisisResponse();
+      return (response: const CrisisResponse(), session: session);
     }
 
     try {
-      final response = await session.sendMessage(Content.text(userMessage));
-      final text = response.text ?? '';
-
-      if (_containsCrisisSignal(text)) {
-        return const CrisisResponse();
-      }
-
-      return ReflectiveReply(text);
+      return (
+        response: _replyFrom(await session.sendMessage(Content.text(userMessage))),
+        session: session,
+      );
     } catch (e, stack) {
-      AppLogger.error('Gemini one-shot message failed', error: e, stackTrace: stack);
-      rethrow;
+      if (!_canFallback(e)) {
+        AppLogger.error('Gemini one-shot message failed', error: e, stackTrace: stack);
+        rethrow;
+      }
+      final history = session.history.toList();
+      _useNextModel();
+      final next = _generativeModel.startChat(history: history);
+      try {
+        return (
+          response: _replyFrom(await next.sendMessage(Content.text(userMessage))),
+          session: next,
+        );
+      } catch (e2, stack2) {
+        AppLogger.error('Gemini one-shot message failed', error: e2, stackTrace: stack2);
+        rethrow;
+      }
     }
+  }
+
+  GeminiResponse _replyFrom(GenerateContentResponse response) {
+    final text = response.text ?? '';
+    if (_containsCrisisSignal(text)) return const CrisisResponse();
+    return ReflectiveReply(text);
   }
 
   bool _containsCrisisSignal(String text) =>

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:scholai_app/core/services/auth_service.dart';
 import 'package:scholai_app/core/services/encryption_service.dart';
 import 'package:scholai_app/core/services/gemini_service.dart';
@@ -10,6 +11,7 @@ import 'package:scholai_app/core/services/notification_service.dart';
 import 'package:scholai_app/core/theme/app_theme.dart';
 import 'package:scholai_app/core/utils/app_logger.dart';
 import 'package:scholai_app/core/utils/app_router.dart';
+import 'package:scholai_app/features/account/data/account_service.dart';
 import 'package:scholai_app/features/habits/data/habit_local_store.dart';
 import 'package:scholai_app/features/habits/presentation/cubit/habit_cubit.dart';
 import 'package:scholai_app/features/pro/data/pro_request_service.dart';
@@ -42,6 +44,7 @@ void main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
     await AuthService.instance.signInAnonymously();
+    await AccountService.instance.ensureProfile();
     firebaseReady = true;
     AppLogger.info('Firebase & Anonymous Auth initialized.');
   } catch (e) {
@@ -51,6 +54,12 @@ void main() async {
   if (firebaseReady) {
     await NotificationService.instance.initialize();
   }
+
+  final prefs = await SharedPreferences.getInstance();
+  final resume = prefs.getString('last_place');
+  AppRouter.initialLocation = prefs.getBool('onboarding_done') == true
+      ? (resume != null && AppRouter.resumePlaces.contains(resume) ? resume : '/home')
+      : '/onboarding';
 
   runApp(const ScholAIApp());
 }

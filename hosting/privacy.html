@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main>
+    <p class="kicker">ScholAI</p>
+    <h1>Privacy Policy</h1>
+    <p>Last updated 16 October 2026.</p>
+    <p>This policy covers the ScholAI Android app, operated by Goodness Mbakara. Privacy questions go to <a href="mailto:amicablembakara50@gmail.com">amicablembakara50@gmail.com</a>.</p>
+    <p>ScholAI is a reflection companion. It is not a clinic, and it does not provide medical care.</p>
+
+    <h2>What we collect</h2>
+    <p>The app starts an anonymous Firebase account on its own, so there is a user id even if you never sign in. If you choose Continue with Google, we also receive the name and email address on that Google account.</p>
+    <p>On the phone, ScholAI stores habit plans, urge logs, your saved daily check-ins (mood and topic), and whether you finished onboarding. Those stay in app storage. Uninstalling the app, or clearing its storage, removes them.</p>
+    <p>If you ask to speak with a professional, we store the request in Cloud Firestore: the topic, whether you want chat or a call, the time window, any note you write, your consent, the status of the request, and the messages in that chat. Staff who review the queue can read it, and so can the professional who is matched to you. That request is not anonymous.</p>
+    <p>If you apply to be a professional, we store your name, email, phone number, credential, organisation, short bio, and the areas you offer to support.</p>
+    <p>Your account record in Firestore holds your role, email if you linked Google, display name, and timestamps. If notifications are allowed, we also store a Firebase Cloud Messaging token so a message can reach this install. A daily check-in reminder is scheduled on the device.</p>
+    <p>The microphone is used only while you are in Gemini Live and the mic is on. ScholAI does not record in the background.</p>
+
+    <h2>Gemini</h2>
+    <p>Journal messages, a short urge-reflection prompt (the habit, the intensity, and whether you rode the urge out), and live voice audio are sent to Google’s Gemini API so ScholAI can reply. ScholAI uses the unpaid Gemini API quota. Under Google’s current unpaid-service terms, Google may use those prompts, audio, and replies to provide, improve, and develop Google products, and human reviewers may read them after they are disconnected from your Google account and the API key. Do not type or say something in ScholAI that you need kept from that process.</p>
+    <p>ScholAI does not keep a copy of the journal transcript on its own server. Habit logs stay on the phone and are not part of that Gemini prompt except for the short reflection request above.</p>
+
+    <h2>Who we share it with</h2>
+    <ul>
+      <li>Google Firebase, for the anonymous or Google sign-in, Cloud Firestore, and push messaging.</li>
+      <li>Google Gemini, for journal replies, urge reflections, and live voice.</li>
+      <li>ScholAI staff and a matched professional, only for a support request or a professional application you submit.</li>
+    </ul>
+    <p>We do not sell personal information. The app does not show ads.</p>
+
+    <h2>How we protect it</h2>
+    <p>Traffic to Firebase uses HTTPS. Firestore rules limit account records, support requests, and applications to the signed-in owner or to staff roles. A key is created on the device and kept in secure storage. That key does not stop journal text or voice from being sent to Gemini in order to generate a reply.</p>
+
+    <h2>How long we keep it</h2>
+    <p>Cloud account data, support requests, applications, and notification tokens stay while the account exists. If you ask us to delete the account, we delete that cloud data within 30 days. Content already sent to Gemini is handled by Google under the API terms above, and we cannot pull it back out of Google’s systems. Data that never left the phone is removed when you uninstall ScholAI or clear its storage.</p>
+    <p>We do not keep a separate marketing list. If a message is required for a legal claim, we keep only what that claim needs, and we say so if you ask.</p>
+
+    <h2>Report a conversation</h2>
+    <p>On a Scholly journal, a Gemini Live voice session, or a chat with a professional, use the flag to report that conversation. Settings also has Report a conversation if you have already left the screen. The report stores your note, the kind of conversation, and a short excerpt so a person on the ScholAI team can read it. You can also email <a href="mailto:amicablembakara50@gmail.com?subject=Report%20a%20ScholAI%20conversation">amicablembakara50@gmail.com</a> with the subject “Report a ScholAI conversation”.</p>
+
+    <h2>Delete your account</h2>
+    <p>You can ask for deletion without reinstalling the app. Use the <a href="/delete-account">delete your account</a> page, or email <a href="mailto:amicablembakara50@gmail.com">amicablembakara50@gmail.com</a> with the subject “Delete my ScholAI account”. Include the Google email shown in Settings, or the UID prefix shown there if you never linked Google.</p>
+
+    <h2>Children</h2>
+    <p>ScholAI is for university students. It is not directed at children under 13.</p>
+
+    <h2>Changes</h2>
+    <p>If this policy changes, the new version will be posted on this page with a new date.</p>
+
+    <nav>
+      <a href="/">Home</a>
+      <a href="/delete-account">Delete your account</a>
+    </nav>
+  </main>
+</body>
+</html>

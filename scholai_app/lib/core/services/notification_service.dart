@@ -5,9 +5,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:scholai_app/core/services/auth_service.dart';
 import 'package:scholai_app/core/utils/app_logger.dart';
+import 'package:scholai_app/core/utils/app_router.dart';
 import 'package:scholai_app/firebase_options.dart';
 import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
@@ -213,9 +215,41 @@ class NotificationService {
           ),
           iOS: DarwinNotificationDetails(),
         ),
-        payload: message.data['route'] as String? ?? '/checkin',
+        payload: message.data['route'] as String? ?? '/home',
       ),
     );
+  }
+
+  /// Routes a notification tap may deep-link into. Anything else falls back
+  /// to the check-in home tab.
+  static const _allowedRoutes = {
+    '/home',
+    '/journal',
+    '/habits',
+    '/trends',
+    '/crisis',
+    '/support',
+    '/settings',
+    '/live',
+  };
+
+  void _openRoute(String? route) {
+    final target =
+        route != null && _allowedRoutes.contains(route) ? route : '/home';
+    // The router may not be attached yet (cold start via notification), so
+    // defer navigation to the first frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      try {
+        AppRouter.router.go(target);
+      } catch (e, stack) {
+        AppLogger.warning(
+          'Notification navigation failed',
+          tag: 'FCM',
+          error: e,
+          stackTrace: stack,
+        );
+      }
+    });
   }
 
   void _onMessageOpened(RemoteMessage message) {
@@ -223,6 +257,7 @@ class NotificationService {
       'Notification opened: ${message.messageId ?? message.data}',
       tag: 'FCM',
     );
+    _openRoute(message.data['route'] as String?);
   }
 
   void _onLocalNotificationTap(NotificationResponse response) {
@@ -230,6 +265,7 @@ class NotificationService {
       'Local notification tap: ${response.payload}',
       tag: 'FCM',
     );
+    _openRoute(response.payload);
   }
 
   /// Schedules a daily local reminder: "Hey. How are you today?"
@@ -272,7 +308,7 @@ class NotificationService {
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
         matchDateTimeComponents: DateTimeComponents.time,
-        payload: '/checkin',
+        payload: '/home',
       );
 
       AppLogger.info(

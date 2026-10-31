@@ -14,6 +14,7 @@ class HabitLocalStore {
   static const _selectedKey = 'habits_selected_kinds';
   static const _logsKey = 'habits_urge_logs';
   static const _setupDoneKey = 'habits_setup_done';
+  static const _plansKey = 'habits_plans_v1';
 
   Future<bool> isSetupDone() async {
     final prefs = await SharedPreferences.getInstance();
@@ -65,40 +66,26 @@ class HabitLocalStore {
     );
   }
 
-  HabitStats computeStats(List<UrgeLog> logs) {
-    final ridden = logs.where((l) => l.outcome == UrgeOutcome.rodeItOut).length;
-    final acted = logs.where((l) => l.outcome == UrgeOutcome.actedOn).length;
-    final today = _dateOnly(DateTime.now());
-    final todayCount = logs.where((l) => _dateOnly(l.loggedAt) == today).length;
+  Future<List<HabitPlan>> loadPlans() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_plansKey);
+    if (raw == null || raw.isEmpty) return const [];
+    try {
+      final list = jsonDecode(raw) as List<dynamic>;
+      return list
+          .whereType<Map>()
+          .map((e) => HabitPlan.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
 
-    return HabitStats(
-      riddenOutTotal: ridden,
-      actedOnTotal: acted,
-      currentStreakDays: _riddenOutStreak(logs),
-      todayLogCount: todayCount,
+  Future<void> savePlans(List<HabitPlan> plans) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _plansKey,
+      jsonEncode(plans.map((plan) => plan.toJson()).toList()),
     );
   }
-
-  int _riddenOutStreak(List<UrgeLog> logs) {
-    final riddenDays = logs
-        .where((l) => l.outcome == UrgeOutcome.rodeItOut)
-        .map((l) => _dateOnly(l.loggedAt))
-        .toSet();
-    if (riddenDays.isEmpty) return 0;
-
-    var cursor = _dateOnly(DateTime.now());
-    if (!riddenDays.contains(cursor)) {
-      cursor = cursor.subtract(const Duration(days: 1));
-      if (!riddenDays.contains(cursor)) return 0;
-    }
-
-    var streak = 0;
-    while (riddenDays.contains(cursor)) {
-      streak++;
-      cursor = cursor.subtract(const Duration(days: 1));
-    }
-    return streak;
-  }
-
-  DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 }
