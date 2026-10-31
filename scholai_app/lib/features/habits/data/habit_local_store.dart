@@ -53,7 +53,7 @@ class HabitLocalStore {
   }
 
   Future<void> addLog(UrgeLog log) async {
-    final logs = await loadLogs();
+    final logs = [...await loadLogs()];
     logs.insert(0, log);
     await _persistLogs(logs);
   }
