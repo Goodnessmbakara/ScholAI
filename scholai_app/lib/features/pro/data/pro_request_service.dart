@@ -49,7 +49,17 @@ class ProRequestService {
       _requestsRefFor(AuthService.instance.uid);
 
   /// Approved professionals written by an admin. Empty until someone is approved.
+  /// Only active pros are returned — they feed matching and assignment.
   Future<List<Professional>> listProfessionals() async {
+    return (await _listProfessionals())
+        .where((pro) => pro.active)
+        .toList();
+  }
+
+  /// Admin view — includes deactivated pros so the roster can be managed.
+  Future<List<Professional>> listAllProfessionals() => _listProfessionals();
+
+  Future<List<Professional>> _listProfessionals() async {
     final db = _db;
     if (db == null) return const [];
     try {
@@ -66,6 +76,17 @@ class ProRequestService {
       );
       return const [];
     }
+  }
+
+  /// Pause or resume a professional — inactive pros are skipped by
+  /// auto-match and the admin assignment dropdown.
+  Future<void> setProfessionalActive(String professionalId, bool active) async {
+    final db = _db;
+    if (db == null) throw StateError('Firebase is not ready.');
+    await db.collection('professionals').doc(professionalId).set(
+      {'active': active},
+      SetOptions(merge: true),
+    );
   }
 
   Future<List<ProRequest>> listQueue() async {
@@ -285,8 +306,9 @@ class ProRequestService {
         ChatMessage(
           text:
               'Hi — I\'m ${pick.name} (${pick.role}). I saw your note about '
-              '${request.topic.toLowerCase()}. When you\'re ready, reply here '
-              'or request a call. Reminder: this session is not anonymous.',
+              '${request.topic.toLowerCase()}. This is an automated intro '
+              'sent on my behalf — I\'ll see your messages and reply when '
+              'I\'m next in the app. Reminder: this session is not anonymous.',
           isUser: false,
           timestamp: DateTime.now(),
         ),
@@ -296,6 +318,38 @@ class ProRequestService {
     return matched;
   }
 
+  Map<String, dynamic> _messageToMap(ChatMessage m) => {
+        'text': m.text,
+        'isUser': m.isUser,
+        if (m.timestamp != null) 'at': m.timestamp!.toIso8601String(),
+      };
+
+  /// Writes only [fields] to the caller's request doc, then mirrors
+  /// [localDoc] into the local cache. Field-scoped writes + arrayUnion keep
+  /// a staff/pro message that lands between read and write from being
+  /// clobbered by a full-document overwrite.
+  Future<void> _persistFields(
+    String requestId,
+    Map<String, dynamic> fields, {
+    required ProRequest localDoc,
+  }) async {
+    final ref = _userRequestsRef();
+    if (ref != null) {
+      try {
+        await ref.doc(requestId).set(fields, SetOptions(merge: true));
+        await _upsertLocal(localDoc);
+        return;
+      } catch (e, stack) {
+        AppLogger.warning(
+          'proRequest remote update failed; saving locally',
+          error: e,
+          stackTrace: stack,
+        );
+      }
+    }
+    await _upsertLocal(localDoc);
+  }
+
   Future<ProRequest> scheduleChat(String requestId) async {
     final current = await getRequest(requestId);
     if (current == null) throw StateError('Request not found');
@@ -303,7 +357,10 @@ class ProRequestService {
       status: ProRequestStatus.chatScheduled,
       updatedAt: DateTime.now(),
     );
-    await _persist(updated);
+    await _persistFields(requestId, {
+      'status': ProRequestStatus.chatScheduled.wire,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, localDoc: updated);
     return updated;
   }
 
@@ -311,22 +368,25 @@ class ProRequestService {
   Future<ProRequest> requestCall(String requestId) async {
     final current = await getRequest(requestId);
     if (current == null) throw StateError('Request not found');
+    final message = ChatMessage(
+      text: current.professionalPhone != null
+          ? 'Call requested. You can dial the volunteer now, or wait for a callback in your time window (${current.timeWindow}).'
+          : 'Call requested. ${current.professionalName ?? 'Your volunteer'} will call you back during ${current.timeWindow}.',
+      isUser: false,
+      timestamp: DateTime.now(),
+    );
     final updated = current.copyWith(
       status: ProRequestStatus.callScheduled,
       preferredMode: ProPreferredMode.call,
       updatedAt: DateTime.now(),
-      messages: [
-        ...current.messages,
-        ChatMessage(
-          text: current.professionalPhone != null
-              ? 'Call requested. You can dial the volunteer now, or wait for a callback in your time window (${current.timeWindow}).'
-              : 'Call requested. ${current.professionalName ?? 'Your volunteer'} will call you back during ${current.timeWindow}.',
-          isUser: false,
-          timestamp: DateTime.now(),
-        ),
-      ],
+      messages: [...current.messages, message],
     );
-    await _persist(updated);
+    await _persistFields(requestId, {
+      'status': ProRequestStatus.callScheduled.wire,
+      'preferredMode': ProPreferredMode.call.wire,
+      'messages': FieldValue.arrayUnion([_messageToMap(message)]),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, localDoc: updated);
     return updated;
   }
 
@@ -338,10 +398,8 @@ class ProRequestService {
       throw const CrisisDivertException();
     }
 
-    final messages = [
-      ...current.messages,
-      ChatMessage(text: text, isUser: isUser, timestamp: DateTime.now()),
-    ];
+    final message =
+        ChatMessage(text: text, isUser: isUser, timestamp: DateTime.now());
 
     var status = current.status;
     if (status == ProRequestStatus.matched || status == ProRequestStatus.pending) {
@@ -349,11 +407,15 @@ class ProRequestService {
     }
 
     final updated = current.copyWith(
-      messages: messages,
+      messages: [...current.messages, message],
       status: status,
       updatedAt: DateTime.now(),
     );
-    await _persist(updated);
+    await _persistFields(requestId, {
+      'messages': FieldValue.arrayUnion([_messageToMap(message)]),
+      'status': status.wire,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, localDoc: updated);
     return updated;
   }
 
@@ -382,45 +444,47 @@ class ProRequestService {
       status = ProRequestStatus.chatScheduled;
     }
 
+    final message = ChatMessage(
+      text: text,
+      isUser: false,
+      timestamp: DateTime.now(),
+    );
+
     final updated = current.copyWith(
-      messages: [
-        ...current.messages,
-        ChatMessage(
-          text: text,
-          isUser: false,
-          timestamp: DateTime.now(),
-        ),
-      ],
+      messages: [...current.messages, message],
       status: status,
       updatedAt: DateTime.now(),
     );
 
-    final data = updated.toMap();
-    data['createdAt'] = Timestamp.fromDate(updated.createdAt);
-    data['updatedAt'] = Timestamp.fromDate(updated.updatedAt);
-    await ref.doc(requestId).set(data, SetOptions(merge: true));
+    // arrayUnion so a student message landing concurrently is not lost.
+    await ref.doc(requestId).set({
+      'messages': FieldValue.arrayUnion([_messageToMap(message)]),
+      'status': status.wire,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
     return updated;
   }
 
-  Future<ProRequest> cancel(String requestId) async {
-    final current = await getRequest(requestId);
-    if (current == null) throw StateError('Request not found');
-    final updated = current.copyWith(
-      status: ProRequestStatus.cancelled,
-      updatedAt: DateTime.now(),
-    );
-    await _persist(updated);
-    return updated;
-  }
+  Future<ProRequest> cancel(String requestId) =>
+      _setStatus(requestId, ProRequestStatus.cancelled);
 
-  Future<ProRequest> complete(String requestId) async {
+  Future<ProRequest> complete(String requestId) =>
+      _setStatus(requestId, ProRequestStatus.completed);
+
+  Future<ProRequest> _setStatus(
+    String requestId,
+    ProRequestStatus status,
+  ) async {
     final current = await getRequest(requestId);
     if (current == null) throw StateError('Request not found');
     final updated = current.copyWith(
-      status: ProRequestStatus.completed,
+      status: status,
       updatedAt: DateTime.now(),
     );
-    await _persist(updated);
+    await _persistFields(requestId, {
+      'status': status.wire,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, localDoc: updated);
     return updated;
   }
 

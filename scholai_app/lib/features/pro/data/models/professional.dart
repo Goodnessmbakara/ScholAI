@@ -7,6 +7,7 @@ class Professional {
   final String bio;
   final String? phone;
   final List<String> availableModes;
+  final bool active;
 
   const Professional({
     required this.id,
@@ -16,6 +17,7 @@ class Professional {
     required this.bio,
     this.phone,
     this.availableModes = const ['chat', 'call'],
+    this.active = true,
   });
 
   Map<String, dynamic> toMap() => {
@@ -26,6 +28,7 @@ class Professional {
         'bio': bio,
         if (phone != null) 'phone': phone,
         'availableModes': availableModes,
+        'active': active,
       };
 
   factory Professional.fromMap(Map<String, dynamic> map, {String? id}) {
@@ -40,6 +43,7 @@ class Professional {
               ?.map((e) => e.toString())
               .toList() ??
           const ['chat', 'call'],
+      active: map['active'] as bool? ?? true,
     );
   }
 }

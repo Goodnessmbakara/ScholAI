@@ -134,6 +134,19 @@ class _ProRequestStatusScreenState extends State<ProRequestStatusScreen> {
     }
   }
 
+  Future<void> _complete() async {
+    final req = _request;
+    if (req == null) return;
+    setState(() => _busy = true);
+    try {
+      final updated = await ProRequestService.instance.complete(req.id);
+      if (!mounted) return;
+      setState(() => _request = updated);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _cancel() async {
     final req = _request;
     if (req == null) return;
@@ -367,6 +380,13 @@ class _ProRequestStatusScreenState extends State<ProRequestStatusScreen> {
             ),
           ),
           const SizedBox(height: 10),
+          TextButton(
+            onPressed: _complete,
+            child: const Text(
+              'Mark session complete',
+              style: TextStyle(color: AppColors.success),
+            ),
+          ),
           TextButton(
             onPressed: _cancel,
             child: const Text(

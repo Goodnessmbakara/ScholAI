@@ -61,7 +61,7 @@ class _AdminConsoleScreenState extends State<AdminConsoleScreen> {
       final results = await Future.wait([
         ProApplicationService.instance.listAll(),
         ProRequestService.instance.listQueue(),
-        ProRequestService.instance.listProfessionals(),
+        ProRequestService.instance.listAllProfessionals(),
         ConversationReportService.instance.listRecent(),
         if (me.canAssignRoles) AccountService.instance.searchUsers(_search.text),
       ]);
@@ -156,6 +156,22 @@ class _AdminConsoleScreenState extends State<AdminConsoleScreen> {
     }
   }
 
+  Future<void> _setActive(Professional pro, bool active) async {
+    try {
+      await ProRequestService.instance
+          .setProfessionalActive(pro.id, active);
+      await _load();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not update that professional.'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
   Future<void> _markReviewed(ConversationReport report) async {
     try {
       await ConversationReportService.instance.markReviewed(report.id);
@@ -215,6 +231,7 @@ class _AdminConsoleScreenState extends State<AdminConsoleScreen> {
                       onMarkReviewed: _markReviewed,
                       onSearch: _searchPeople,
                       onSetRole: _setRole,
+                      onSetActive: _setActive,
                     ),
     );
   }
@@ -234,6 +251,7 @@ class _Console extends StatelessWidget {
     required this.onMarkReviewed,
     required this.onSearch,
     required this.onSetRole,
+    required this.onSetActive,
   });
 
   final PlatformProfile me;
@@ -248,6 +266,7 @@ class _Console extends StatelessWidget {
   final void Function(ConversationReport) onMarkReviewed;
   final VoidCallback onSearch;
   final void Function(PlatformProfile, PlatformRole) onSetRole;
+  final void Function(Professional, bool) onSetActive;
 
   @override
   Widget build(BuildContext context) {
@@ -255,6 +274,7 @@ class _Console extends StatelessWidget {
       const Tab(text: 'Applications'),
       const Tab(text: 'Requests'),
       const Tab(text: 'Reports'),
+      const Tab(text: 'Roster'),
       if (me.canAssignRoles) const Tab(text: 'Roles'),
     ];
     return DefaultTabController(
@@ -277,6 +297,7 @@ class _Console extends StatelessWidget {
                   onAssign: onAssign,
                 ),
                 _ReportList(reports: reports, onMarkReviewed: onMarkReviewed),
+                _RosterList(professionals: professionals, onSetActive: onSetActive),
                 if (me.canAssignRoles)
                   _RoleList(
                     people: people,
@@ -450,7 +471,7 @@ class _QueueList extends StatelessWidget {
                     ),
                   ),
                 ),
-              if (professionals.isNotEmpty &&
+              if (professionals.any((p) => p.active) &&
                   request.status != ProRequestStatus.cancelled &&
                   request.status != ProRequestStatus.completed)
                 Padding(
@@ -464,7 +485,7 @@ class _QueueList extends StatelessWidget {
                     dropdownColor: AppColors.surfaceMid,
                     style: const TextStyle(color: AppColors.textPrimary),
                     items: [
-                      for (final pro in professionals)
+                      for (final pro in professionals.where((p) => p.active))
                         DropdownMenuItem(value: pro.id, child: Text(pro.name)),
                     ],
                     onChanged: (id) {
@@ -630,6 +651,53 @@ class _ReportList extends StatelessWidget {
                   child: const Text('Mark reviewed'),
                 ),
             ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _RosterList extends StatelessWidget {
+  const _RosterList({required this.professionals, required this.onSetActive});
+
+  final List<Professional> professionals;
+  final void Function(Professional, bool) onSetActive;
+
+  @override
+  Widget build(BuildContext context) {
+    if (professionals.isEmpty) {
+      return const _Empty(text: 'No professionals approved yet.');
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.all(16),
+      itemCount: professionals.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (context, index) {
+        final pro = professionals[index];
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceCard,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: pro.active,
+            activeThumbColor: AppColors.primaryLight,
+            title: Text(
+              pro.name,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            subtitle: Text(
+              '${pro.role}${pro.specialty.isEmpty ? '' : ' · ${pro.specialty}'}',
+              style: const TextStyle(
+                  color: AppColors.textSecondary, fontSize: 12),
+            ),
+            onChanged: (value) => onSetActive(pro, value),
           ),
         );
       },

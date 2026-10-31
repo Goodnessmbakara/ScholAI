@@ -107,6 +107,14 @@ class ProApplicationService {
         'active': true,
         'organization': application.organization,
       });
+    } else if (status == ProApplicationStatus.rejected) {
+      // A previously approved application that is later rejected must not
+      // keep the professional in the matching pool.
+      batch.set(
+        db.collection('professionals').doc(application.uid),
+        {'active': false},
+        SetOptions(merge: true),
+      );
     }
 
     await batch.commit();

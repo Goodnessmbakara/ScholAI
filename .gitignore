@@ -29,6 +29,8 @@
 
 # Firebase local cache / deploy artifacts
 .firebase/
+functions/node_modules/
+functions/package-lock.json
 
 
 # Logs

@@ -99,7 +99,7 @@ class _JournalScreenState extends State<JournalScreen> {
           _exchangeCount++;
           String reply = text;
 
-          if (_exchangeCount >= _maxExchanges) {
+          if (_exchangeCount == _maxExchanges) {
             reply +=
                 '\n\n_You\'ve been doing a lot of reflection today. Have you thought about talking to someone in person? The UI counselling centre is always open._ 💛';
           }

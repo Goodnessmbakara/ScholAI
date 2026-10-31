@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:scholai_app/core/services/auth_service.dart';
 import 'package:scholai_app/core/services/encryption_service.dart';
+import 'package:scholai_app/core/services/notification_service.dart';
 import 'package:scholai_app/core/theme/app_theme.dart';
 import 'package:scholai_app/features/account/data/account_service.dart';
 import 'package:scholai_app/features/pro/data/models/pro_request.dart';
@@ -35,6 +36,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   List<ProRequest> _recentRequests = const [];
   final _nameCtrl = TextEditingController();
   String _avatarEmoji = '';
+  TimeOfDay? _reminder;
 
   @override
   void dispose() {
@@ -63,11 +65,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadProfile() async {
     final profile = await AccountService.instance.ensureProfile();
+    final saved = await NotificationService.instance.loadReminderTime();
     if (!mounted) return;
     setState(() {
       _nameCtrl.text = profile?.displayName ?? '';
       _avatarEmoji = profile?.avatarEmoji ?? '';
+      _reminder = TimeOfDay(hour: saved.hour, minute: saved.minute);
     });
+  }
+
+  Future<void> _pickReminderTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _reminder ?? const TimeOfDay(hour: 8, minute: 0),
+    );
+    if (picked == null || !mounted) return;
+    final label = picked.format(context);
+    await NotificationService.instance
+        .saveReminderTime(picked.hour, picked.minute);
+    if (!mounted) return;
+    setState(() => _reminder = picked);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Daily reminder set for $label.'),
+      ),
+    );
   }
 
   Future<void> _saveProfile({String? avatarEmoji}) async {
@@ -181,6 +203,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
     if (confirmed != true || !mounted) return;
 
+    await NotificationService.instance.cancelDailyCheckInReminder();
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
     await EncryptionService.instance.cryptographicallyWipeData();
@@ -462,6 +485,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             trailing: const Icon(Icons.chevron_right, color: AppColors.textMuted),
             onTap: () => context.push('/habits/setup?edit=1'),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.notifications_outlined, color: AppColors.primaryLight),
+            title: const Text(
+              'Daily check-in reminder',
+              style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600),
+            ),
+            subtitle: Text(
+              _reminder == null
+                  ? 'Every day at 8:00 AM'
+                  : 'Every day at ${_reminder!.format(context)}',
+              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            ),
+            trailing: const Icon(Icons.chevron_right, color: AppColors.textMuted),
+            onTap: _pickReminderTime,
           ),
           const SizedBox(height: 28),
           Text(

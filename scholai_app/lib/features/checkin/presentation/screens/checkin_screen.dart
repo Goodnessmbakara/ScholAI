@@ -246,5 +246,14 @@ class _CheckInScreenState extends State<CheckInScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('✓ Logged! Have a good one.')),
     );
+
+    // Crisis triage: two lowest moods for 3+ consecutive days surfaces
+    // the resource screen (pushed, so the student can come back).
+    final recent = await CheckInLocalStore.instance.loadLastDays(3);
+    if (mounted &&
+        recent.length == 3 &&
+        recent.every((e) => e.mood <= 2)) {
+      context.push('/crisis');
+    }
   }
 }

@@ -7,6 +7,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:scholai_app/core/services/auth_service.dart';
 import 'package:scholai_app/core/utils/app_logger.dart';
 import 'package:scholai_app/core/utils/app_router.dart';
@@ -231,6 +232,7 @@ class NotificationService {
     '/support',
     '/settings',
     '/live',
+    '/my-cases',
   };
 
   void _openRoute(String? route) {
@@ -268,12 +270,33 @@ class NotificationService {
     _openRoute(response.payload);
   }
 
+  static const _hourKey = 'reminder_hour';
+  static const _minuteKey = 'reminder_minute';
+
+  /// Saved reminder time, defaults to 08:00.
+  Future<({int hour, int minute})> loadReminderTime() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (
+      hour: prefs.getInt(_hourKey) ?? 8,
+      minute: prefs.getInt(_minuteKey) ?? 0,
+    );
+  }
+
+  /// Persists a new reminder time and reschedules immediately.
+  Future<void> saveReminderTime(int hour, int minute) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_hourKey, hour);
+    await prefs.setInt(_minuteKey, minute);
+    await scheduleDailyCheckInReminder(hour: hour, minute: minute);
+  }
+
   /// Schedules a daily local reminder: "Hey. How are you today?"
-  /// Default: 8:00 AM Africa/Lagos. Safe to call repeatedly (replaces prior).
-  Future<void> scheduleDailyCheckInReminder({
-    int hour = 8,
-    int minute = 0,
-  }) async {
+  /// Falls back to the saved preference when [hour]/[minute] are omitted.
+  /// Safe to call repeatedly (replaces prior).
+  Future<void> scheduleDailyCheckInReminder({int? hour, int? minute}) async {
+    final saved = await loadReminderTime();
+    hour ??= saved.hour;
+    minute ??= saved.minute;
     try {
       final now = tz.TZDateTime.now(tz.local);
       var scheduled = tz.TZDateTime(

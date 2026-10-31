@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:scholai_app/core/theme/app_theme.dart';
 
@@ -86,7 +87,13 @@ class CrisisScreen extends StatelessWidget {
               ..._resources.map((r) => _ResourceCard(resource: r)),
               const Spacer(),
               TextButton(
-                onPressed: () => Navigator.of(context).pop(),
+                onPressed: () {
+                  if (context.canPop()) {
+                    context.pop();
+                  } else {
+                    context.go('/home');
+                  }
+                },
                 child: const Text(
                   '← Go back',
                   style: TextStyle(color: AppColors.textMuted),
