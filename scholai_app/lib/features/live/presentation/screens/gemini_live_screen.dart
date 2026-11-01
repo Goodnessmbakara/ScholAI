@@ -26,7 +26,9 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
   late final Animation<double> _pulseAnimation;
 
   final _service = GeminiLiveService.instance;
-  final _player = AudioPlayer();
+  // lowLatency (SoundPool on Android) lets slices start immediately —
+  // the default mode re-buffers per play() and gaps between chunks.
+  final _player = AudioPlayer()..setPlayerMode(PlayerMode.lowLatency);
   final _recorder = AudioRecorder();
   StreamSubscription? _eventSub;
   StreamSubscription<Uint8List>? _micSub;
@@ -126,9 +128,9 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
 
   void _enqueuePcm(Uint8List chunk) {
     _pcmBuffer.add(chunk);
-    // 24 kHz, 16-bit mono: 12 KB is about a quarter second.
-    // Start that slice now instead of waiting for the whole reply.
-    if (_pcmBuffer.length >= 12000) {
+    // 24 kHz, 16-bit mono: 24 KB is about half a second — bigger slices
+    // mean fewer play() transitions per reply.
+    if (_pcmBuffer.length >= 24000) {
       _playQueue.add(pcmToWav(_pcmBuffer.takeBytes(), sampleRate: 24000));
       unawaited(_drainPlayback());
     }
@@ -145,6 +147,9 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
     await _drainPlayback();
   }
 
+  /// PCM ms = bytes after the 44-byte WAV header / (24000 Hz × 2 bytes).
+  int _wavDurationMs(Uint8List wav) => ((wav.length - 44).clamp(0, 1 << 62)) ~/ 48;
+
   Future<void> _drainPlayback() async {
     if (_draining) return;
     _draining = true;
@@ -152,7 +157,12 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
       final wav = _playQueue.removeAt(0);
       try {
         await _player.play(BytesSource(wav, mimeType: 'audio/wav'));
-        await _player.onPlayerComplete.first.timeout(const Duration(seconds: 45));
+        // Schedule the next slice for when this one ends rather than
+        // awaiting onPlayerComplete — the platform event's latency was
+        // the audible gap between chunks. 30 ms early start overlaps
+        // slightly, which is cleaner than a dropout.
+        final ms = _wavDurationMs(wav);
+        await Future.delayed(Duration(milliseconds: ms > 30 ? ms - 30 : ms));
       } catch (_) {
         // Playback is best-effort on demo devices.
       }
