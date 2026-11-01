@@ -352,6 +352,74 @@ class NotificationService {
     await _local.cancel(_dailyCheckInNotificationId);
   }
 
+  static const _urgeNudgeId = 3;
+  static const _urgeNudgeKey = 'urge_nudge_key';
+
+  /// First nudge hour per pattern-card time bucket — inside the window,
+  /// early enough to land ahead of the usual urge.
+  static const _urgeWindowHour = <String, int>{
+    'morning': 8,
+    'afternoon': 12,
+    'evening': 17,
+    'night': 21,
+  };
+
+  /// Preemptive urge nudge: once the pattern card knows the usual window,
+  /// nudge inside it daily so the interception lands ahead of the urge.
+  /// Null [windowLabel] cancels; only reschedules when (window, habit)
+  /// changes so build calls are cheap.
+  Future<void> syncUrgeWindowNudge(
+    String? windowLabel,
+    String habitLabel,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = windowLabel == null ? '' : '$windowLabel|$habitLabel';
+    if (prefs.getString(_urgeNudgeKey) == key) return;
+    await prefs.setString(_urgeNudgeKey, key);
+    await _local.cancel(_urgeNudgeId);
+    if (windowLabel == null) return;
+
+    final hour = _urgeWindowHour[windowLabel];
+    if (hour == null) return;
+    try {
+      final now = tz.TZDateTime.now(tz.local);
+      var scheduled = tz.TZDateTime(
+        tz.local, now.year, now.month, now.day, hour, 45);
+      if (scheduled.isBefore(now)) {
+        scheduled = scheduled.add(const Duration(days: 1));
+      }
+      await _local.zonedSchedule(
+        _urgeNudgeId,
+        'Heads up',
+        'Urges usually hit around now for $habitLabel. You know what to do.',
+        scheduled,
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            kScholaiChannelId,
+            kScholaiChannelName,
+            channelDescription: kScholaiChannelDesc,
+            importance: Importance.high,
+            priority: Priority.high,
+            icon: '@mipmap/ic_launcher',
+          ),
+          iOS: DarwinNotificationDetails(),
+        ),
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        matchDateTimeComponents: DateTimeComponents.time,
+        payload: '/habits',
+      );
+    } catch (e, stack) {
+      AppLogger.warning(
+        'Could not schedule urge nudge',
+        tag: 'FCM',
+        error: e,
+        stackTrace: stack,
+      );
+    }
+  }
+
   Future<void> dispose() async {
     await _tokenRefreshSub?.cancel();
     _tokenRefreshSub = null;

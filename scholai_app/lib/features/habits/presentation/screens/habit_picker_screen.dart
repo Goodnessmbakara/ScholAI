@@ -123,21 +123,42 @@ class _HabitPickerScreenState extends State<HabitPickerScreen> {
                               });
                             },
                           ),
-                          if (kind == HabitKind.custom &&
-                              _selected.contains(kind))
+                          if (_selected.contains(kind))
                             Padding(
                               padding: const EdgeInsets.only(bottom: 10),
-                              child: TextField(
-                                controller: _customName,
-                                maxLength: 30,
-                                textCapitalization:
-                                    TextCapitalization.sentences,
-                                style: const TextStyle(
-                                    color: AppColors.textPrimary),
-                                decoration: const InputDecoration(
-                                  labelText: 'Name it',
-                                  hintText: 'e.g. alcohol, weed, gambling',
-                                ),
+                              child: Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                children: [
+                                  if (kind == HabitKind.custom)
+                                    TextField(
+                                      controller: _customName,
+                                      maxLength: 30,
+                                      textCapitalization:
+                                          TextCapitalization.sentences,
+                                      style: const TextStyle(
+                                          color: AppColors.textPrimary),
+                                      decoration: const InputDecoration(
+                                        labelText: 'Name it',
+                                        hintText:
+                                            'e.g. alcohol, weed, gambling',
+                                      ),
+                                    ),
+                                  for (final tip
+                                      in kFrictionTips[kind] ?? const [])
+                                    Padding(
+                                      padding: const EdgeInsets.only(
+                                          left: 4, top: 4),
+                                      child: Text(
+                                        '· $tip',
+                                        style: const TextStyle(
+                                          color: AppColors.textSecondary,
+                                          fontSize: 12,
+                                          height: 1.4,
+                                        ),
+                                      ),
+                                    ),
+                                ],
                               ),
                             )
                           else

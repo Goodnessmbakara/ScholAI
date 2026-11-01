@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:speech_to_text/speech_to_text.dart';
+import 'package:scholai_app/core/services/notification_service.dart';
 import 'package:scholai_app/core/theme/app_theme.dart';
 import 'package:scholai_app/features/habits/domain/habit_insights.dart';
 import 'package:scholai_app/features/habits/domain/habit_models.dart';
@@ -46,10 +50,13 @@ class _HabitsScreenState extends State<HabitsScreen> {
     });
   }
 
+  String _costDraft = '';
+
   void _captureReason(HabitKind habit, HabitPlan plan) {
     if (_reasonHabit == habit) return;
     _reasonHabit = habit;
     _reasonDraft = plan.reason;
+    _costDraft = plan.dailyCost > 0 ? '${plan.dailyCost.round()}' : '';
   }
 
   Future<void> _openTimer(HabitKind habit, HabitPlan plan) async {
@@ -84,7 +91,8 @@ class _HabitsScreenState extends State<HabitsScreen> {
         if (!mounted) return;
         setState(() => _noteCtrl.text = r.recognizedWords);
       },
-      listenFor: const Duration(seconds: 30),
+      listenOptions:
+          SpeechListenOptions(listenFor: const Duration(seconds: 30)),
     );
     if (mounted) setState(() => _listening = false);
   }
@@ -110,6 +118,50 @@ class _HabitsScreenState extends State<HabitsScreen> {
               : 'Logged — noticing without judgment matters too.',
         ),
       ),
+    );
+    if (_outcome == UrgeOutcome.actedOn) {
+      _debriefAfterSlip(habit);
+    }
+  }
+
+  /// Post-slip iteration: one gentle question that turns a slip into a plan.
+  Future<void> _debriefAfterSlip(HabitKind habit) async {
+    final ctrl = TextEditingController();
+    final note = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.surfaceCard,
+        title: const Text(
+          'What do you want to try next time?',
+          style: TextStyle(color: AppColors.textPrimary, fontSize: 16),
+        ),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          maxLines: 2,
+          textCapitalization: TextCapitalization.sentences,
+          style: const TextStyle(color: AppColors.textPrimary),
+          decoration: const InputDecoration(
+            hintText: 'e.g. leave the room first, text Sam',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Skip'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, ctrl.text.trim()),
+            child: const Text('Save it',
+                style: TextStyle(color: AppColors.primaryLight)),
+          ),
+        ],
+      ),
+    );
+    if (note == null || note.isEmpty || !mounted) return;
+    final cubit = context.read<HabitCubit>();
+    await cubit.savePlan(
+      cubit.state.planFor(habit).copyWith(nextTryNote: note),
     );
   }
 
@@ -163,6 +215,12 @@ class _HabitsScreenState extends State<HabitsScreen> {
               now: DateTime.now(),
             );
             final pattern = computeUrgePattern(state.logs, activeHabit);
+            // Preemptive nudge — fires inside the usual window once the
+            // pattern card knows it (no-ops until ready / when unchanged).
+            unawaited(NotificationService.instance.syncUrgeWindowNudge(
+              pattern.ready ? pattern.timeLabel : null,
+              plan.displayName,
+            ));
 
             return ListView(
               padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
@@ -358,9 +416,102 @@ class _HabitsScreenState extends State<HabitsScreen> {
                     FocusScope.of(context).unfocus();
                   },
                 ),
+                if (plan.counterMove.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    'Counter-move · ${plan.counterMove}',
+                    style: const TextStyle(
+                        color: AppColors.accentLight, fontSize: 13, height: 1.4),
+                  ),
+                ],
+                if (plan.nextTryNote.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Next time: ${plan.nextTryNote}',
+                    style: const TextStyle(
+                        color: AppColors.textSecondary, fontSize: 13, height: 1.4),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                TextFormField(
+                  key: ValueKey('cost_${activeHabit.id}'),
+                  initialValue: plan.dailyCost > 0
+                      ? '${plan.dailyCost.round()}'
+                      : '',
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  style: const TextStyle(color: AppColors.textPrimary),
+                  decoration: const InputDecoration(
+                    labelText: 'Daily cost (₦, optional)',
+                    hintText: 'Shows "saved so far" on a Stop run',
+                    counterText: '',
+                  ),
+                  onChanged: (v) => _costDraft = v,
+                  onEditingComplete: () {
+                    context.read<HabitCubit>().savePlan(
+                          plan.copyWith(
+                            dailyCost:
+                                double.tryParse(_costDraft) ?? plan.dailyCost,
+                          ),
+                        );
+                    FocusScope.of(context).unfocus();
+                  },
+                ),
                     ],
                   ),
                 ),
+                if (pattern.ready &&
+                    pattern.topTrigger != null &&
+                    plan.counterMove.isEmpty) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceCard,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                          color: AppColors.accent.withValues(alpha: 0.35)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Your urges usually land in the ${pattern.timeLabel} '
+                          'after ${pattern.topTrigger!.patternPhrase}. '
+                          'Pick your counter-move:',
+                          style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              height: 1.4,
+                              fontSize: 14),
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final move
+                                in kCounterMoves[pattern.topTrigger!]!)
+                              ActionChip(
+                                label: Text(
+                                  move,
+                                  style: const TextStyle(
+                                      color: AppColors.textPrimary,
+                                      fontSize: 12),
+                                ),
+                                backgroundColor: AppColors.surfaceMid,
+                                onPressed: () => context
+                                    .read<HabitCubit>()
+                                    .savePlan(
+                                      plan.copyWith(counterMove: move),
+                                    ),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 24),
                 Text(
                   'Log it now',
@@ -547,6 +698,17 @@ class _HabitsScreenState extends State<HabitsScreen> {
                 ],
                 const SizedBox(height: 28),
                 _StatsRow(stats: stats),
+                if (plan.dailyCost > 0 &&
+                    stats.abstinenceStreak &&
+                    stats.currentStreakDays > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      '≈ ₦${(plan.dailyCost * stats.currentStreakDays).toStringAsFixed(0)} kept so far this run.',
+                      style: const TextStyle(
+                          color: AppColors.accentLight, fontSize: 13),
+                    ),
+                  ),
                 const SizedBox(height: 16),
                 _PatternCard(pattern: pattern),
                 const SizedBox(height: 24),

@@ -86,6 +86,15 @@ class _UrgeTimerScreenState extends State<UrgeTimerScreen> {
     context.pop(message);
   }
 
+  /// Urge-surf script keyed to where you are in the five minutes.
+  String _promptFor(Duration left) {
+    final s = left.inSeconds;
+    if (s > 240) return 'Notice where the urge sits in your body.';
+    if (s > 120) return "It's rising — that's what urges do. They peak, then fade.";
+    if (s > 60) return 'The peak is passing. Stay with it.';
+    return 'Almost through — this part is the win.';
+  }
+
   @override
   Widget build(BuildContext context) {
     final plan = context.watch<HabitCubit>().state.planFor(widget.habit);
@@ -98,19 +107,23 @@ class _UrgeTimerScreenState extends State<UrgeTimerScreen> {
       backgroundColor: AppColors.surfaceDark,
       appBar: AppBar(
         backgroundColor: AppColors.surfaceDark,
-        title: Text(widget.habit.label),
+        title: Text(plan.displayName),
       ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
           children: [
             if (!_finished) ...[
-              Text(
-                'Stay with it for five minutes. Urges rise, then fall.',
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: AppColors.textSecondary,
-                      height: 1.4,
-                    ),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 400),
+                child: Text(
+                  _promptFor(_left),
+                  key: ValueKey(_promptFor(_left)),
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: AppColors.textSecondary,
+                        height: 1.4,
+                      ),
+                ),
               ),
               const SizedBox(height: 28),
               Center(
@@ -136,6 +149,40 @@ class _UrgeTimerScreenState extends State<UrgeTimerScreen> {
                 ),
               ),
               const SizedBox(height: 28),
+              if (plan.counterMove.isNotEmpty)
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.accent.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                        color: AppColors.accent.withValues(alpha: 0.35)),
+                  ),
+                  child: Text(
+                    'Try instead: ${plan.counterMove}',
+                    style: const TextStyle(
+                      color: AppColors.accentLight,
+                      height: 1.45,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              if (plan.nextTryNote.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Text(
+                    'Last time you said: ${plan.nextTryNote}',
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      height: 1.4,
+                      fontSize: 13,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
               if (reason.isNotEmpty)
                 Container(
                   width: double.infinity,

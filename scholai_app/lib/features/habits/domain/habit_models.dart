@@ -135,6 +135,15 @@ class HabitPlan extends Equatable {
   final DateTime startedAt;
   final String customLabel;
 
+  /// If-then counter-move the user picked for their top trigger.
+  final String counterMove;
+
+  /// Post-slip debrief answer — "what I'll try next time".
+  final String nextTryNote;
+
+  /// Optional daily cost (₦) — fuels the "saved so far" line on Stop aims.
+  final double dailyCost;
+
   const HabitPlan({
     required this.habit,
     required this.aim,
@@ -142,6 +151,9 @@ class HabitPlan extends Equatable {
     required this.reason,
     required this.startedAt,
     this.customLabel = '',
+    this.counterMove = '',
+    this.nextTryNote = '',
+    this.dailyCost = 0,
   });
 
   /// What to show the user — the typed name for custom areas.
@@ -166,6 +178,9 @@ class HabitPlan extends Equatable {
     String? reason,
     DateTime? startedAt,
     String? customLabel,
+    String? counterMove,
+    String? nextTryNote,
+    double? dailyCost,
   }) {
     return HabitPlan(
       habit: habit,
@@ -175,6 +190,9 @@ class HabitPlan extends Equatable {
       reason: reason ?? this.reason,
       startedAt: startedAt ?? this.startedAt,
       customLabel: customLabel ?? this.customLabel,
+      counterMove: counterMove ?? this.counterMove,
+      nextTryNote: nextTryNote ?? this.nextTryNote,
+      dailyCost: dailyCost ?? this.dailyCost,
     );
   }
 
@@ -185,6 +203,9 @@ class HabitPlan extends Equatable {
         'reason': reason,
         'startedAt': startedAt.toIso8601String(),
         if (customLabel.isNotEmpty) 'customLabel': customLabel,
+        if (counterMove.isNotEmpty) 'counterMove': counterMove,
+        if (nextTryNote.isNotEmpty) 'nextTryNote': nextTryNote,
+        if (dailyCost > 0) 'dailyCost': dailyCost,
       };
 
   factory HabitPlan.fromJson(Map<String, dynamic> json) {
@@ -198,13 +219,73 @@ class HabitPlan extends Equatable {
       startedAt:
           DateTime.tryParse(json['startedAt'] as String? ?? '') ?? DateTime.now(),
       customLabel: json['customLabel'] as String? ?? '',
+      counterMove: json['counterMove'] as String? ?? '',
+      nextTryNote: json['nextTryNote'] as String? ?? '',
+      dailyCost: (json['dailyCost'] as num?)?.toDouble() ?? 0,
     );
   }
 
   @override
-  List<Object?> get props =>
-      [habit, aim, masturbationCountsAsSlip, reason, startedAt, customLabel];
+  List<Object?> get props => [
+        habit,
+        aim,
+        masturbationCountsAsSlip,
+        reason,
+        startedAt,
+        customLabel,
+        counterMove,
+        nextTryNote,
+        dailyCost,
+      ];
 }
+
+/// Competing responses per trigger — "when X, do Y instead".
+const kCounterMoves = <UrgeTrigger, List<String>>{
+  UrgeTrigger.boredom: [
+    'Take a 10-minute walk',
+    'Do 20 push-ups or squats',
+    'Make tea — no phone',
+  ],
+  UrgeTrigger.stress: [
+    '4-7-8 breathing, four rounds',
+    'Step outside for two minutes of air',
+    'Write the stress down before anything else',
+  ],
+  UrgeTrigger.loneliness: [
+    'Text someone you trust',
+    'Go where people are — class, hall, café',
+    'Call a friend instead of scrolling',
+  ],
+  UrgeTrigger.habitLoop: [
+    'Change rooms right now',
+    'Hold something else — pen, stress ball',
+    'Read one page of anything',
+  ],
+  UrgeTrigger.other: [
+    'Drink a glass of water slowly',
+    'Set a 10-minute timer and just wait',
+    'Move your body — any way',
+  ],
+};
+
+/// Environment-design tips per area — friction beats willpower.
+const kFrictionTips = <HabitKind, List<String>>{
+  HabitKind.smoking: [
+    'Don\'t carry them — leave the pack behind',
+    'Tell one person you\'re cutting down',
+  ],
+  HabitKind.pornUrges: [
+    'Charge the phone outside the bedroom',
+    'Turn on a DNS/content filter',
+  ],
+  HabitKind.doomscrolling: [
+    'Log out or move the app off your home screen',
+    'Set a grayscale shortcut for nights',
+  ],
+  HabitKind.custom: [
+    'Change one thing in your space that feeds the urge',
+  ],
+};
 
 class UrgeLog extends Equatable {
   final String id;
