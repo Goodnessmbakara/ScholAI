@@ -36,3 +36,4 @@ functions/package-lock.json
 # Logs
 *.log
 .secrets/
+node_modules/
