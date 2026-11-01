@@ -108,6 +108,8 @@ class AccountService {
 
   static const _nameKey = 'profile_display_name';
   static const _avatarKey = 'profile_avatar_emoji';
+  static const _facultyKey = 'profile_faculty';
+  static const _yearKey = 'profile_year_of_study';
 
   Future<String> _localName() async {
     final prefs = await SharedPreferences.getInstance();
@@ -126,11 +128,17 @@ class AccountService {
   Future<PlatformProfile?> updateProfile({
     String? displayName,
     String? avatarEmoji,
+    String? faculty,
+    String? yearOfStudy,
   }) async {
     final name = displayName?.trim();
     final emoji = avatarEmoji?.trim();
+    final fac = faculty?.trim();
+    final year = yearOfStudy?.trim();
     if ((name == null || name.isEmpty) &&
-        (emoji == null || emoji.isEmpty)) {
+        (emoji == null || emoji.isEmpty) &&
+        (fac == null || fac.isEmpty) &&
+        (year == null || year.isEmpty)) {
       return profile;
     }
 
@@ -141,6 +149,8 @@ class AccountService {
     if (emoji != null && emoji.isNotEmpty) {
       await prefs.setString(_avatarKey, emoji);
     }
+    if (fac != null && fac.isNotEmpty) await prefs.setString(_facultyKey, fac);
+    if (year != null && year.isNotEmpty) await prefs.setString(_yearKey, year);
 
     final user = FirebaseAuth.instance.currentUser;
     final db = _db;
@@ -151,6 +161,8 @@ class AccountService {
         };
         if (name != null && name.isNotEmpty) data['displayName'] = name;
         if (emoji != null && emoji.isNotEmpty) data['avatarEmoji'] = emoji;
+        if (fac != null && fac.isNotEmpty) data['faculty'] = fac;
+        if (year != null && year.isNotEmpty) data['yearOfStudy'] = year;
         await db.collection('users').doc(user.uid).set(
               data,
               SetOptions(merge: true),

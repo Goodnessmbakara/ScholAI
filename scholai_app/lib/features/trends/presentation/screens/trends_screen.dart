@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:scholai_app/core/services/gemini_service.dart';
 import 'package:scholai_app/core/theme/scholai_colors.dart';
 import 'package:scholai_app/features/checkin/data/checkin_local_store.dart';
 
@@ -15,6 +18,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
   static const _windowDays = 7;
 
   List<CheckInEntry>? _entries;
+  String? _aiInsight;
 
   @override
   void initState() {
@@ -26,6 +30,30 @@ class _TrendsScreenState extends State<TrendsScreen> {
     final entries = await CheckInLocalStore.instance.loadLastDays(_windowDays);
     if (!mounted) return;
     setState(() => _entries = entries);
+    _loadAiInsight(entries);
+  }
+
+  /// Personalized Gemini insight — replaces the static line only when a
+  /// real reply comes back; the static text stays the fallback.
+  Future<void> _loadAiInsight(List<CheckInEntry> entries) async {
+    if (entries.isEmpty || !GeminiService.instance.hasApiKey) return;
+    try {
+      final week = [
+        for (final e in entries)
+          (
+            mood: e.mood,
+            day: DateFormat.E().format(e.day),
+            category: e.category ?? '',
+          ),
+      ];
+      final text = await GeminiService.instance
+          .generateTrendInsight(week)
+          .timeout(const Duration(seconds: 12));
+      if (!mounted || text == null || text.isEmpty) return;
+      setState(() => _aiInsight = text);
+    } catch (_) {
+      // Static insight stays.
+    }
   }
 
   @override
@@ -55,6 +83,9 @@ class _TrendsScreenState extends State<TrendsScreen> {
       final lowest = DateFormat.E().format(lowestDay);
       insight = 'Your lowest day was $lowest. You\'ve been here before — '
           'and you persevered through it.';
+    }
+    if (_aiInsight != null && _aiInsight!.isNotEmpty) {
+      insight = _aiInsight!;
     }
 
     return Scaffold(

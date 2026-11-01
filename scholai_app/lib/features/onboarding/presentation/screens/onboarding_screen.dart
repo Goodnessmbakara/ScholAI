@@ -18,6 +18,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   final _pageController = PageController();
   int _currentPage = 0;
   bool _googleBusy = false;
+  String? _faculty;
+  String? _year;
+
+  static const _faculties = [
+    'Arts', 'Science', 'Law', 'Medicine', 'Engineering',
+    'Social Sciences', 'Education', 'Agriculture', 'Pharmacy', 'Other',
+  ];
+  static const _years = ['100L', '200L', '300L', '400L', '500L+', 'Postgrad'];
 
   static const _pages = [
     _OnboardingPage(
@@ -86,7 +94,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 controller: _pageController,
                 onPageChanged: (i) => setState(() => _currentPage = i),
                 itemCount: _pages.length,
-                itemBuilder: (context, i) => _OnboardingPageView(page: _pages[i]),
+                itemBuilder: (context, i) => _OnboardingPageView(
+                      page: _pages[i],
+                      trailing: i == _pages.length - 1
+                          ? _buildProfilePicker(colors)
+                          : null,
+                    ),
               ),
             ),
 
@@ -157,6 +170,46 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
   }
 
+  /// Optional faculty + year — feeds the aggregate-campus-stress goal.
+  Widget _buildProfilePicker(ScholAIColors colors) {
+    return Column(
+      children: [
+        const SizedBox(height: 20),
+        Text(
+          'Optional — helps us understand campus stress',
+          style: TextStyle(color: colors.textMuted, fontSize: 12),
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String>(
+          initialValue: _faculty,
+          hint: const Text('Faculty'),
+          dropdownColor: colors.surfaceCard,
+          style: TextStyle(color: colors.textPrimary, fontSize: 14),
+          decoration: const InputDecoration(isDense: true),
+          items: [
+            for (final f in _faculties)
+              DropdownMenuItem(value: f, child: Text(f)),
+          ],
+          onChanged: (v) => setState(() => _faculty = v),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          alignment: WrapAlignment.center,
+          children: [
+            for (final y in _years)
+              ChoiceChip(
+                label: Text(y),
+                selected: _year == y,
+                onSelected: (_) => setState(() => _year = y),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
   Future<void> _signInWithGoogle() async {
     setState(() => _googleBusy = true);
     try {
@@ -177,6 +230,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Future<void> _skipToHome() async {
+    await AccountService.instance
+        .updateProfile(faculty: _faculty, yearOfStudy: _year);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('onboarding_done', true);
     if (mounted) context.go('/home');
@@ -185,7 +240,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
 class _OnboardingPageView extends StatelessWidget {
   final _OnboardingPage page;
-  const _OnboardingPageView({required this.page});
+  final Widget? trailing;
+  const _OnboardingPageView({required this.page, this.trailing});
 
   @override
   Widget build(BuildContext context) {
@@ -264,6 +320,7 @@ class _OnboardingPageView extends StatelessWidget {
                   height: 1.55,
                 ),
           ),
+          if (trailing != null) trailing!,
         ],
       ),
     );

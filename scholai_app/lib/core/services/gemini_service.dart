@@ -103,6 +103,36 @@ class GeminiService {
   }
 
 
+  /// One personalized weekly insight for the Trends card — notices a real
+  /// pattern in the week's moods/categories, ends with a gentle question.
+  Future<String?> generateTrendInsight(List<({int mood, String day, String category})> week) async {
+    if (!hasApiKey || week.isEmpty) return null;
+    final summary = week
+        .map((e) =>
+            '${e.day}: ${e.mood}/5${e.category.isNotEmpty ? ' (${e.category})' : ''}')
+        .join(', ');
+    final prompt = '''
+A Nigerian university student's mood check-ins this week: $summary.
+Write ONE warm personalized insight (max 2 sentences) noticing a real pattern —
+a weekday dip, a recurring category, or improvement/decline — and end with a
+gentle reflective question. No advice, no diagnosis, no clinical language.
+''';
+    try {
+      final res = await _generativeModel.generateContent([Content.text(prompt)]);
+      return res.text?.trim();
+    } catch (e) {
+      if (!_canFallback(e)) return null;
+      _useNextModel();
+      try {
+        final res =
+            await _generativeModel.generateContent([Content.text(prompt)]);
+        return res.text?.trim();
+      } catch (_) {
+        return null;
+      }
+    }
+  }
+
   /// Short reflective prompt for urge logging (companion framing, not clinical).
   /// Returns null on crisis signal or missing API key.
   Future<String?> generateUrgeReflection({

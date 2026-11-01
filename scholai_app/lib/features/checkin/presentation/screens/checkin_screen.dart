@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:scholai_app/core/theme/app_theme.dart';
 import 'package:scholai_app/features/account/data/account_service.dart';
 import 'package:scholai_app/features/checkin/data/checkin_local_store.dart';
@@ -19,6 +20,11 @@ class _CheckInScreenState extends State<CheckInScreen> {
   String? _selectedCategory;
   bool _ready = false;
   String _profileName = '';
+  bool _showHumanNudge = false;
+
+  /// Every 14 days, ask whether the student has talked to a real person —
+  /// PRD §9 guardrail against relying on the app instead of humans.
+  static const _nudgeKey = 'last_human_nudge';
 
   final List<String> _categories = [
     '📚 Exams', '💸 Money', '🏠 Family', '❤️ Relationships', '😴 Sleep', '🌀 Just overwhelmed',
@@ -34,8 +40,13 @@ class _CheckInScreenState extends State<CheckInScreen> {
     final draft = await CheckInLocalStore.instance.loadToday();
     final profile = AccountService.instance.profile ??
         await AccountService.instance.ensureProfile();
+    final prefs = await SharedPreferences.getInstance();
+    final lastNudge =
+        DateTime.tryParse(prefs.getString(_nudgeKey) ?? '');
     if (!mounted) return;
     setState(() {
+      _showHumanNudge = lastNudge == null ||
+          DateTime.now().difference(lastNudge).inDays >= 14;
       if (draft != null) {
         _selectedMood = draft.mood;
         _selectedCategory =
@@ -44,6 +55,12 @@ class _CheckInScreenState extends State<CheckInScreen> {
       _profileName = (profile?.displayName ?? '').trim();
       _ready = true;
     });
+  }
+
+  Future<void> _dismissNudge() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_nudgeKey, DateTime.now().toIso8601String());
+    if (mounted) setState(() => _showHumanNudge = false);
   }
 
   Future<void> _remember() async {
@@ -104,6 +121,40 @@ class _CheckInScreenState extends State<CheckInScreen> {
                 ],
               ),
               const SizedBox(height: 20),
+
+              if (_showHumanNudge)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: AppColors.accent.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                        color: AppColors.accent.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Have you spoken to anyone in person recently? '
+                          'A chat with a friend counts too.',
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 13,
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Got it',
+                        icon: const Icon(Icons.close,
+                            color: AppColors.textMuted, size: 18),
+                        onPressed: _dismissNudge,
+                      ),
+                    ],
+                  ),
+                ),
 
               // Gemini Live Sanctuary Banner
               InkWell(
