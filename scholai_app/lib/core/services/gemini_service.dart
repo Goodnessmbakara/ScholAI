@@ -6,15 +6,21 @@ import 'package:scholai_app/core/utils/crisis_detection.dart';
 
 /// Wraps the Gemini Flash API for ScholAI's reflective journaling.
 ///
-/// Text calls use `gemini-3.8-flash`. If that model is overloaded or retired,
-/// the next call falls back to `gemini-3.6-flash`, which still answers the
+/// Text calls lead with `gemini-3.6-flash` (non-thinking, ~1.5s). The
+/// `gemini-3.8-flash` model is a thinking model that takes ~40s per turn —
+/// it always loses to the UI timeouts, so it is not in the list. If the
+/// primary is overloaded or retired, the next call falls back through the
 /// same generateContent request. Thinking tokens count against
 /// `maxOutputTokens`; 150 cut the visible reply off mid-sentence.
 class GeminiService {
   GeminiService._();
   static final instance = GeminiService._();
 
-  static const _modelIds = ['gemini-3.8-flash', 'gemini-3.6-flash'];
+  static const _modelIds = [
+    'gemini-3.6-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite',
+  ];
 
   GenerativeModel? _model;
   var _modelIndex = 0;
