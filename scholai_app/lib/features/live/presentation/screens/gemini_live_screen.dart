@@ -77,6 +77,42 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
   /// memory pool on dispose so text and voice remember each other.
   final _liveTurns = <ChatMessage>[];
 
+  /// Set when the student signals they want to end — the agent closes the
+  /// session for them once the farewell reply finishes playing.
+  bool _farewellPending = false;
+
+  static const _farewellSignals = [
+    'goodbye', 'good night', 'goodnight', 'bye', "i'm done", 'i am done',
+    "that's all", 'talk later', 'see you', 'i have to go', 'i gotta go',
+    'sleep well', 'end session', 'end the session', 'take care',
+  ];
+
+  bool _isFarewell(String text) {
+    final lower = text.toLowerCase();
+    return _farewellSignals.any((s) => lower.contains(s));
+  }
+
+  /// Wait until every buffered/queued slice has actually played, so the
+  /// farewell reply isn't cut off mid-word. Bounded so a stuck player
+  /// can't trap the screen.
+  Future<void> _waitPlaybackIdle() async {
+    await _flushPlayback();
+    final deadline = DateTime.now().add(const Duration(seconds: 45));
+    while ((_draining || _playQueue.isNotEmpty || _pcmBuffer.isNotEmpty) &&
+        DateTime.now().isBefore(deadline)) {
+      await Future.delayed(const Duration(milliseconds: 120));
+    }
+  }
+
+  void _endSessionAfterPlayback() {
+    _farewellPending = false;
+    if (mounted) setState(() => _status = 'Goodnight 💛');
+    unawaited(() async {
+      await _waitPlaybackIdle();
+      if (mounted) Navigator.of(context).pop();
+    }());
+  }
+
   void _initLiveConnection() {
     _eventSub = _service.events.listen((event) {
       if (!mounted) return;
@@ -103,6 +139,7 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
           _playbackFlushTimer = Timer(const Duration(seconds: 6),
               () => unawaited(_flushPlayback()));
         case LiveTranscriptReceivedEvent(:final text, :final isUser):
+          if (isUser && _isFarewell(text)) _farewellPending = true;
           setState(() {
             if (isUser) {
               _heardLine = _mergeTranscript(_heardLine, text);
@@ -136,6 +173,7 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
           _heardLine = '';
           _replyLine = '';
           unawaited(_flushPlayback());
+          if (_farewellPending) _endSessionAfterPlayback();
         case LiveCrisisDetectedEvent():
           unawaited(_stopMicStreaming());
           context.go('/crisis');
@@ -378,6 +416,7 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
       });
       return;
     }
+    if (_isFarewell(prompt)) _farewellPending = true;
     _service.sendTextMessage(prompt);
     setState(() {
       _liveSubtitle = '"$prompt"';
