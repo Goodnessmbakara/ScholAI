@@ -135,11 +135,15 @@ class HabitCubit extends Cubit<HabitState> {
     String prompt;
     if (_gemini.hasApiKey) {
       try {
-        final ai = await _gemini.generateUrgeReflection(
-          habitLabel: habit.label,
-          intensity: intensity,
-          rodeItOut: outcome == UrgeOutcome.rodeItOut,
-        );
+        // Timeout keeps a stalled Gemini call from spinning forever —
+        // the static prompts are the intended fallback.
+        final ai = await _gemini
+            .generateUrgeReflection(
+              habitLabel: habit.label,
+              intensity: intensity,
+              rodeItOut: outcome == UrgeOutcome.rodeItOut,
+            )
+            .timeout(const Duration(seconds: 15));
         prompt = (ai != null && ai.isNotEmpty)
             ? ai
             : _staticPromptFor(habit, intensity, outcome);
