@@ -139,7 +139,7 @@ class HabitCubit extends Cubit<HabitState> {
         // the static prompts are the intended fallback.
         final ai = await _gemini
             .generateUrgeReflection(
-              habitLabel: habit.label,
+              habitLabel: _planOrFallback(habit).displayName,
               intensity: intensity,
               rodeItOut: outcome == UrgeOutcome.rodeItOut,
             )

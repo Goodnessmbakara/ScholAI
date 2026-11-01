@@ -4,7 +4,8 @@ import 'package:equatable/equatable.dart';
 enum HabitKind {
   smoking,
   pornUrges,
-  doomscrolling;
+  doomscrolling,
+  custom;
 
   String get id => name;
 
@@ -12,12 +13,14 @@ enum HabitKind {
         HabitKind.smoking => 'Smoking',
         HabitKind.pornUrges => 'Porn / compulsive urges',
         HabitKind.doomscrolling => 'Doomscrolling',
+        HabitKind.custom => 'Something else',
       };
 
   String get shortHint => switch (this) {
         HabitKind.smoking => 'Cigarettes, vapes, or nicotine urges',
         HabitKind.pornUrges => 'Porn or compulsive sexual urges — no shame, just notice',
         HabitKind.doomscrolling => 'Endless feed / phone rabbit holes',
+        HabitKind.custom => 'Name your own — alcohol, weed, gambling, gaming, anything',
       };
 
   static HabitKind? tryParse(String id) {
@@ -130,6 +133,7 @@ class HabitPlan extends Equatable {
   final bool masturbationCountsAsSlip;
   final String reason;
   final DateTime startedAt;
+  final String customLabel;
 
   const HabitPlan({
     required this.habit,
@@ -137,7 +141,14 @@ class HabitPlan extends Equatable {
     required this.masturbationCountsAsSlip,
     required this.reason,
     required this.startedAt,
+    this.customLabel = '',
   });
+
+  /// What to show the user — the typed name for custom areas.
+  String get displayName =>
+      habit == HabitKind.custom && customLabel.trim().isNotEmpty
+          ? customLabel.trim()
+          : habit.label;
 
   factory HabitPlan.fallback(HabitKind habit, {DateTime? now}) {
     return HabitPlan(
@@ -154,6 +165,7 @@ class HabitPlan extends Equatable {
     bool? masturbationCountsAsSlip,
     String? reason,
     DateTime? startedAt,
+    String? customLabel,
   }) {
     return HabitPlan(
       habit: habit,
@@ -162,6 +174,7 @@ class HabitPlan extends Equatable {
           masturbationCountsAsSlip ?? this.masturbationCountsAsSlip,
       reason: reason ?? this.reason,
       startedAt: startedAt ?? this.startedAt,
+      customLabel: customLabel ?? this.customLabel,
     );
   }
 
@@ -171,6 +184,7 @@ class HabitPlan extends Equatable {
         'masturbationCountsAsSlip': masturbationCountsAsSlip,
         'reason': reason,
         'startedAt': startedAt.toIso8601String(),
+        if (customLabel.isNotEmpty) 'customLabel': customLabel,
       };
 
   factory HabitPlan.fromJson(Map<String, dynamic> json) {
@@ -183,12 +197,13 @@ class HabitPlan extends Equatable {
       reason: json['reason'] as String? ?? '',
       startedAt:
           DateTime.tryParse(json['startedAt'] as String? ?? '') ?? DateTime.now(),
+      customLabel: json['customLabel'] as String? ?? '',
     );
   }
 
   @override
   List<Object?> get props =>
-      [habit, aim, masturbationCountsAsSlip, reason, startedAt];
+      [habit, aim, masturbationCountsAsSlip, reason, startedAt, customLabel];
 }
 
 class UrgeLog extends Equatable {

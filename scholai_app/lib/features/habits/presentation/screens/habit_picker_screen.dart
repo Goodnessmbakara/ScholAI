@@ -18,22 +18,45 @@ class HabitPickerScreen extends StatefulWidget {
 
 class _HabitPickerScreenState extends State<HabitPickerScreen> {
   late Set<HabitKind> _selected;
+  final _customName = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _selected = {...context.read<HabitCubit>().state.selectedHabits};
+    if (_selected.contains(HabitKind.custom)) {
+      _customName.text = context
+          .read<HabitCubit>()
+          .state
+          .planFor(HabitKind.custom)
+          .customLabel;
+    }
+  }
+
+  @override
+  void dispose() {
+    _customName.dispose();
+    super.dispose();
   }
 
   IconData _iconFor(HabitKind kind) => switch (kind) {
         HabitKind.smoking => Icons.smoking_rooms,
         HabitKind.pornUrges => Icons.visibility_off_outlined,
         HabitKind.doomscrolling => Icons.phone_android_outlined,
+        HabitKind.custom => Icons.edit_outlined,
       };
 
   Future<void> _continue() async {
     if (_selected.isEmpty) return;
-    await context.read<HabitCubit>().saveSelectedHabits(_selected);
+    final cubit = context.read<HabitCubit>();
+    await cubit.saveSelectedHabits(_selected);
+    if (_selected.contains(HabitKind.custom)) {
+      await cubit.savePlan(
+        cubit.state
+            .planFor(HabitKind.custom)
+            .copyWith(customLabel: _customName.text.trim()),
+      );
+    }
     if (!mounted) return;
     if (widget.fromSettings) {
       context.pop();
@@ -100,7 +123,25 @@ class _HabitPickerScreenState extends State<HabitPickerScreen> {
                               });
                             },
                           ),
-                          const SizedBox(height: 10),
+                          if (kind == HabitKind.custom &&
+                              _selected.contains(kind))
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: TextField(
+                                controller: _customName,
+                                maxLength: 30,
+                                textCapitalization:
+                                    TextCapitalization.sentences,
+                                style: const TextStyle(
+                                    color: AppColors.textPrimary),
+                                decoration: const InputDecoration(
+                                  labelText: 'Name it',
+                                  hintText: 'e.g. alcohol, weed, gambling',
+                                ),
+                              ),
+                            )
+                          else
+                            const SizedBox(height: 10),
                         ],
                         const SizedBox(height: 8),
                         TextButton(

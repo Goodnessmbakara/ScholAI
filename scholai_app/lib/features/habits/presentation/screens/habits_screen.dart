@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 import 'package:scholai_app/core/theme/app_theme.dart';
 import 'package:scholai_app/features/habits/domain/habit_insights.dart';
 import 'package:scholai_app/features/habits/domain/habit_models.dart';
@@ -24,6 +25,15 @@ class _HabitsScreenState extends State<HabitsScreen> {
   PornAct _pornAct = PornAct.porn;
   String _reasonDraft = '';
   HabitKind? _reasonHabit;
+  final _noteCtrl = TextEditingController();
+  final _speech = SpeechToText();
+  bool _listening = false;
+
+  @override
+  void dispose() {
+    _noteCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -53,6 +63,32 @@ class _HabitsScreenState extends State<HabitsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  Future<void> _toggleListen() async {
+    if (_listening) {
+      await _speech.stop();
+      if (mounted) setState(() => _listening = false);
+      return;
+    }
+    final ok = await _speech.initialize();
+    if (!mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Speech recognition is not available here.')),
+      );
+      return;
+    }
+    setState(() => _listening = true);
+    await _speech.listen(
+      onResult: (r) {
+        if (!mounted) return;
+        setState(() => _noteCtrl.text = r.recognizedWords);
+      },
+      listenFor: const Duration(seconds: 30),
+    );
+    if (mounted) setState(() => _listening = false);
+  }
+
   Future<void> _submitLog(HabitKind habit) async {
     final cubit = context.read<HabitCubit>();
     await cubit.logUrge(
@@ -60,6 +96,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
       intensity: _intensity.round(),
       outcome: _outcome,
       trigger: _trigger,
+      note: _noteCtrl.text,
       pornAct: _outcome == UrgeOutcome.actedOn && habit == HabitKind.pornUrges
           ? _pornAct
           : PornAct.none,
@@ -165,7 +202,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
                   children: [
                     for (final h in habits)
                       ChoiceChip(
-                        label: Text(h.label),
+                        label: Text(state.planFor(h).displayName),
                         selected: activeHabit == h,
                         onSelected: (selected) {
                           if (!selected || h == activeHabit) return;
@@ -223,7 +260,7 @@ class _HabitsScreenState extends State<HabitsScreen> {
                       ),
                     ),
                     subtitle: Text(
-                      '${activeHabit.label} · ${plan.aim.label}',
+                      '${plan.displayName} · ${plan.aim.label}',
                       style: const TextStyle(
                         color: AppColors.textMuted,
                         fontSize: 12,
@@ -421,7 +458,29 @@ class _HabitsScreenState extends State<HabitsScreen> {
                       ),
                   ],
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: _noteCtrl,
+                  maxLength: 140,
+                  textCapitalization: TextCapitalization.sentences,
+                  style: const TextStyle(color: AppColors.textPrimary),
+                  decoration: InputDecoration(
+                    labelText: 'Note (optional)',
+                    hintText: 'Or tap the mic and say it',
+                    counterText: '',
+                    suffixIcon: IconButton(
+                      tooltip: _listening ? 'Stop listening' : 'Say it instead',
+                      icon: Icon(
+                        _listening ? Icons.mic : Icons.mic_none,
+                        color: _listening
+                            ? AppColors.primary
+                            : AppColors.textMuted,
+                      ),
+                      onPressed: _toggleListen,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
                 ElevatedButton(
                   onPressed: () => _submitLog(activeHabit),
                   child: const Text('Save log'),

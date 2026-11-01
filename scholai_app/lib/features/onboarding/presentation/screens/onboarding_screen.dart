@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:scholai_app/core/services/auth_service.dart';
 import 'package:scholai_app/core/theme/scholai_colors.dart';
+import 'package:scholai_app/features/account/data/account_service.dart';
 import 'package:scholai_app/shared/widgets/scholai_mark.dart';
 
 /// 3-screen high-fidelity onboarding flow with editorial illustrations.
@@ -15,6 +17,7 @@ class OnboardingScreen extends StatefulWidget {
 class _OnboardingScreenState extends State<OnboardingScreen> {
   final _pageController = PageController();
   int _currentPage = 0;
+  bool _googleBusy = false;
 
   static const _pages = [
     _OnboardingPage(
@@ -125,6 +128,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 ),
               ),
             ),
+            if (_currentPage == _pages.length - 1)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: TextButton(
+                  onPressed: _googleBusy ? null : _signInWithGoogle,
+                  child: Text(
+                    _googleBusy ? 'Signing in…' : 'or continue with Google',
+                    style: TextStyle(color: colors.textSecondary),
+                  ),
+                ),
+              ),
             const SizedBox(height: 20),
           ],
         ),
@@ -140,6 +154,25 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       );
     } else {
       await _skipToHome();
+    }
+  }
+
+  Future<void> _signInWithGoogle() async {
+    setState(() => _googleBusy = true);
+    try {
+      // Links the Google credential to the existing anonymous session so
+      // local check-ins and habits stay attached to the same account.
+      final result = await AuthService.instance.linkOrSignInWithGoogle();
+      if (result == GoogleLinkResult.cancelled) return;
+      await AccountService.instance.ensureProfile();
+      await _skipToHome();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Google sign-in did not finish.')),
+      );
+    } finally {
+      if (mounted) setState(() => _googleBusy = false);
     }
   }
 
