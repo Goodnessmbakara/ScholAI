@@ -332,10 +332,31 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
     }
   }
 
+  /// Mean-square of 16-bit PCM — cheap loudness without dart:math sqrt.
+  static double _meanSq(Uint8List pcm) {
+    var sum = 0.0;
+    var n = 0;
+    for (var i = 0; i + 1 < pcm.length; i += 2) {
+      var s = pcm[i] | (pcm[i + 1] << 8);
+      if (s >= 0x8000) s -= 0x10000;
+      sum += s * s;
+      n++;
+    }
+    return n == 0 ? 0 : sum / n;
+  }
+
+  /// Loudness floor (~1.2k RMS on 16-bit) — quiet echo from the speaker
+  /// stays below it, deliberate speech near the mic clears it.
+  static const _speechFloorSq = 1500000.0;
+
   void _onMicChunk(Uint8List chunk) {
     // Keep streaming during playback — the server's activity detection
     // needs the mic audio to notice the student interjecting (barge-in).
+    // But only forward chunks loud enough to be real speech: Scholly's
+    // own speaker output echoing back trips interruption detection,
+    // which is what was killing playback mid-word.
     if (_isMuted || !_connected || chunk.isEmpty) return;
+    if (_draining && _meanSq(chunk) < _speechFloorSq) return;
     _service.sendAudioChunk(chunk);
 
     final loud = _peakPcm(chunk) > 1400;
