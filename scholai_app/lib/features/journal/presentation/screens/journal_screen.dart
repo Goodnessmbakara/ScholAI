@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:go_router/go_router.dart';
 import 'package:scholai_app/core/theme/app_theme.dart';
 import 'package:scholai_app/core/services/gemini_service.dart';
+import 'package:scholai_app/features/journal/data/journal_local_store.dart';
 import 'package:scholai_app/features/journal/presentation/widgets/chat_bubble.dart';
 import 'package:scholai_app/features/safety/data/conversation_report_service.dart';
 import 'package:scholai_app/features/safety/domain/conversation_report.dart';
@@ -33,22 +36,90 @@ class _JournalScreenState extends State<JournalScreen> {
     isUser: false,
   );
 
+  /// How much of the saved transcript feeds back into the Gemini session.
+  static const _historySeedLimit = 40;
+
   @override
   void initState() {
     super.initState();
-    if (GeminiService.instance.hasApiKey) {
-      _session = GeminiService.instance.startSession();
+    _init();
+  }
+
+  Future<void> _init() async {
+    final saved = await JournalLocalStore.instance.load();
+    if (!mounted) return;
+
+    if (saved.isEmpty) {
+      _messages.add(_openingMessage);
+      unawaited(JournalLocalStore.instance.save(_messages));
+    } else {
+      setState(() {
+        _messages.addAll(saved);
+        _exchangeCount = saved.where((m) => m.isUser).length;
+      });
     }
-    _messages.add(_openingMessage);
+
     if (!GeminiService.instance.hasApiKey) {
-      _messages.add(
-        const ChatMessage(
-          text:
-              'AI key not embedded in this build. Run with --dart-define=GEMINI_API_KEY=... to enable Scholly.',
-          isUser: false,
-        ),
-      );
+      setState(() {
+        _messages.add(
+          const ChatMessage(
+            text:
+                'AI key not embedded in this build. Run with --dart-define=GEMINI_API_KEY=... to enable Scholly.',
+            isUser: false,
+          ),
+        );
+      });
+      return;
     }
+
+    // Re-seed so Scholly remembers this thread, not just shows it.
+    _session = saved.isEmpty
+        ? GeminiService.instance.startSession()
+        : GeminiService.instance.startSessionWithHistory(
+            saved.length > _historySeedLimit
+                ? saved.sublist(saved.length - _historySeedLimit)
+                : saved,
+          );
+  }
+
+  Future<void> _newConversation() async {
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.surfaceCard,
+        title: const Text('Start a new conversation?',
+            style: TextStyle(color: AppColors.textPrimary)),
+        content: const Text(
+          'This clears the transcript stored on this phone. Nothing was ever sent anywhere else.',
+          style: TextStyle(color: AppColors.textSecondary, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Keep it'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Start fresh',
+                style: TextStyle(color: AppColors.primaryLight)),
+          ),
+        ],
+      ),
+    );
+    if (sure != true || !mounted) return;
+    await JournalLocalStore.instance.clear();
+    setState(() {
+      _messages
+        ..clear()
+        ..add(_openingMessage);
+      _exchangeCount = 0;
+      _isLoading = false;
+      _session = GeminiService.instance.hasApiKey
+          ? GeminiService.instance.startSession()
+          : null;
+    });
+    unawaited(JournalLocalStore.instance.save(_messages));
+    _scrollToBottom();
   }
 
   @override
@@ -77,14 +148,17 @@ class _JournalScreenState extends State<JournalScreen> {
 
     _controller.clear();
     setState(() {
-      _messages.add(ChatMessage(text: text, isUser: true));
+      _messages.add(ChatMessage(text: text, isUser: true, timestamp: DateTime.now()));
       _isLoading = true;
     });
+    unawaited(JournalLocalStore.instance.save(_messages));
     _scrollToBottom();
 
     try {
       final session = _session ??= GeminiService.instance.startSession();
-      final turn = await GeminiService.instance.sendMessage(session, text);
+      final turn = await GeminiService.instance
+          .sendMessage(session, text)
+          .timeout(const Duration(seconds: 25));
       _session = turn.session;
       final response = turn.response;
 
@@ -105,9 +179,11 @@ class _JournalScreenState extends State<JournalScreen> {
           }
 
           setState(() {
-            _messages.add(ChatMessage(text: reply, isUser: false));
+            _messages.add(ChatMessage(
+                text: reply, isUser: false, timestamp: DateTime.now()));
             _isLoading = false;
           });
+          unawaited(JournalLocalStore.instance.save(_messages));
           _scrollToBottom();
       }
     } catch (e) {
@@ -148,6 +224,11 @@ class _JournalScreenState extends State<JournalScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'New conversation',
+            onPressed: _newConversation,
+            icon: const Icon(Icons.add_comment_outlined),
+          ),
           IconButton(
             tooltip: 'Report this conversation',
             onPressed: () => showReportConversationSheet(
