@@ -50,6 +50,13 @@ class JournalLocalStore {
     );
   }
 
+  /// Appends turns (e.g. a live voice exchange) to the shared memory pool.
+  Future<void> append(List<ChatMessage> messages) async {
+    if (messages.isEmpty) return;
+    final current = await load();
+    await save([...current, ...messages]);
+  }
+
   Future<void> clear() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_key);

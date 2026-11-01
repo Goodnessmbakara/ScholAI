@@ -8,8 +8,10 @@ import 'package:record/record.dart';
 import 'package:scholai_app/core/services/gemini_live_service.dart';
 import 'package:scholai_app/core/theme/scholai_colors.dart';
 import 'package:scholai_app/core/utils/pcm_wav.dart';
+import 'package:scholai_app/features/journal/data/journal_local_store.dart';
 import 'package:scholai_app/features/safety/domain/conversation_report.dart';
 import 'package:scholai_app/features/safety/presentation/report_conversation_sheet.dart';
+import 'package:scholai_app/shared/models/chat_message.dart';
 import 'package:scholai_app/shared/widgets/scholai_mark.dart';
 
 /// Gemini Live Audio Sanctuary — real-time voice decompression for students.
@@ -26,9 +28,8 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
   late final Animation<double> _pulseAnimation;
 
   final _service = GeminiLiveService.instance;
-  // lowLatency (SoundPool on Android) lets slices start immediately —
-  // the default mode re-buffers per play() and gaps between chunks.
-  final _player = AudioPlayer()..setPlayerMode(PlayerMode.lowLatency);
+  // One WAV per turn — zero play() transitions means zero gaps.
+  final _player = AudioPlayer();
   final _recorder = AudioRecorder();
   StreamSubscription? _eventSub;
   StreamSubscription<Uint8List>? _micSub;
@@ -72,6 +73,10 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
     _initLiveConnection();
   }
 
+  /// Completed live turns this session — appended to the shared journal
+  /// memory pool on dispose so text and voice remember each other.
+  final _liveTurns = <ChatMessage>[];
+
   void _initLiveConnection() {
     _eventSub = _service.events.listen((event) {
       if (!mounted) return;
@@ -85,7 +90,18 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
                 : 'Mic on — speak freely';
           });
         case LiveAudioReceivedEvent(:final audioBytes):
-          _enqueuePcm(audioBytes);
+          _pcmBuffer.add(audioBytes);
+          // ~4 s slices (192 KB at 24 kHz/16-bit) — long replies start
+          // early with only one transition per four seconds.
+          if (_pcmBuffer.length >= 192000) {
+            _playQueue.add(
+                pcmToWav(_pcmBuffer.takeBytes(), sampleRate: 24000));
+            unawaited(_drainPlayback());
+          }
+          // Safety flush if a turn boundary never arrives mid-reply.
+          _playbackFlushTimer?.cancel();
+          _playbackFlushTimer = Timer(const Duration(seconds: 6),
+              () => unawaited(_flushPlayback()));
         case LiveTranscriptReceivedEvent(:final text, :final isUser):
           setState(() {
             if (isUser) {
@@ -108,6 +124,17 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
             _status = _isMuted ? 'Listening to you...' : 'Mic on — speak freely';
           });
         case LiveTurnCompleteEvent():
+          // Bank the completed pair into this session's memory.
+          if (_heardLine.trim().isNotEmpty) {
+            _liveTurns.add(ChatMessage(
+                text: _heardLine.trim(), isUser: true, timestamp: DateTime.now()));
+          }
+          if (_replyLine.trim().isNotEmpty) {
+            _liveTurns.add(ChatMessage(
+                text: _replyLine.trim(), isUser: false, timestamp: DateTime.now()));
+          }
+          _heardLine = '';
+          _replyLine = '';
           unawaited(_flushPlayback());
         case LiveCrisisDetectedEvent():
           unawaited(_stopMicStreaming());
@@ -123,21 +150,26 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
       }
     });
 
-    _service.connect();
+    _connectWithMemory();
   }
 
-  void _enqueuePcm(Uint8List chunk) {
-    _pcmBuffer.add(chunk);
-    // 24 kHz, 16-bit mono: 24 KB is about half a second — bigger slices
-    // mean fewer play() transitions per reply.
-    if (_pcmBuffer.length >= 24000) {
-      _playQueue.add(pcmToWav(_pcmBuffer.takeBytes(), sampleRate: 24000));
-      unawaited(_drainPlayback());
-    }
-    _playbackFlushTimer?.cancel();
-    _playbackFlushTimer = Timer(const Duration(milliseconds: 280), () {
-      unawaited(_flushPlayback());
-    });
+  /// Seeds the live session with recent journal + voice turns — one shared
+  /// memory pool across modalities.
+  Future<void> _connectWithMemory() async {
+    var memory = '';
+    try {
+      final recent = await JournalLocalStore.instance.load();
+      if (recent.isNotEmpty) {
+        final tail = recent.length > 10
+            ? recent.sublist(recent.length - 10)
+            : recent;
+        memory = tail
+            .map((m) => '${m.isUser ? 'Student' : 'Scholly'}: ${m.text}')
+            .join('\n');
+      }
+    } catch (_) {}
+    if (!mounted) return;
+    _service.connect(memoryContext: memory);
   }
 
   Future<void> _flushPlayback() async {
@@ -147,9 +179,6 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
     await _drainPlayback();
   }
 
-  /// PCM ms = bytes after the 44-byte WAV header / (24000 Hz × 2 bytes).
-  int _wavDurationMs(Uint8List wav) => ((wav.length - 44).clamp(0, 1 << 62)) ~/ 48;
-
   Future<void> _drainPlayback() async {
     if (_draining) return;
     _draining = true;
@@ -157,12 +186,8 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
       final wav = _playQueue.removeAt(0);
       try {
         await _player.play(BytesSource(wav, mimeType: 'audio/wav'));
-        // Schedule the next slice for when this one ends rather than
-        // awaiting onPlayerComplete — the platform event's latency was
-        // the audible gap between chunks. 30 ms early start overlaps
-        // slightly, which is cleaner than a dropout.
-        final ms = _wavDurationMs(wav);
-        await Future.delayed(Duration(milliseconds: ms > 30 ? ms - 30 : ms));
+        await _player.onPlayerComplete.first
+            .timeout(const Duration(seconds: 60));
       } catch (_) {
         // Playback is best-effort on demo devices.
       }
@@ -270,7 +295,9 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
   }
 
   void _onMicChunk(Uint8List chunk) {
-    if (_isMuted || !_connected || chunk.isEmpty || _draining) return;
+    // Keep streaming during playback — the server's activity detection
+    // needs the mic audio to notice the student interjecting (barge-in).
+    if (_isMuted || !_connected || chunk.isEmpty) return;
     _service.sendAudioChunk(chunk);
 
     final loud = _peakPcm(chunk) > 1400;
@@ -335,6 +362,10 @@ class _GeminiLiveScreenState extends State<GeminiLiveScreen>
     _recorder.dispose();
     _service.disconnect();
     _player.dispose();
+    // Voice turns join the same memory pool the journal reads from.
+    if (_liveTurns.isNotEmpty) {
+      unawaited(JournalLocalStore.instance.append(_liveTurns));
+    }
     _pulseController.dispose();
     super.dispose();
   }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:go_router/go_router.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 import 'package:scholai_app/core/theme/app_theme.dart';
 import 'package:scholai_app/core/services/gemini_service.dart';
 import 'package:scholai_app/features/journal/data/journal_local_store.dart';
@@ -27,6 +28,9 @@ class _JournalScreenState extends State<JournalScreen> {
   ChatSession? _session;
   bool _isLoading = false;
   int _exchangeCount = 0;
+  final _speech = SpeechToText();
+  bool _listening = false;
+  String _speechBase = '';
 
   static const _maxExchanges = 5;
 
@@ -200,6 +204,44 @@ class _JournalScreenState extends State<JournalScreen> {
     }
   }
 
+  /// Voice input — typing shouldn't be the only way to talk to Scholly.
+  /// Recognized words append onto whatever was already typed.
+  Future<void> _toggleListen() async {
+    if (_listening) {
+      await _speech.stop();
+      if (mounted) setState(() => _listening = false);
+      return;
+    }
+    final ok = await _speech.initialize();
+    if (!mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Speech recognition is not available here.')),
+      );
+      return;
+    }
+    _speechBase = _controller.text;
+    setState(() => _listening = true);
+    await _speech.listen(
+      onResult: (r) {
+        if (!mounted) return;
+        setState(() {
+          final base = _speechBase.trim();
+          _controller.text = base.isEmpty
+              ? r.recognizedWords
+              : '$base ${r.recognizedWords}';
+          _controller.selection = TextSelection.fromPosition(
+            TextPosition(offset: _controller.text.length),
+          );
+        });
+      },
+      listenOptions:
+          SpeechListenOptions(listenFor: const Duration(seconds: 45)),
+    );
+    if (mounted) setState(() => _listening = false);
+  }
+
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
@@ -296,6 +338,27 @@ class _JournalScreenState extends State<JournalScreen> {
                 border: InputBorder.none,
               ),
               onSubmitted: (_) => _send(),
+            ),
+          ),
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: _toggleListen,
+            child: Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: _listening
+                    ? AppColors.primary.withValues(alpha: 0.35)
+                    : AppColors.surfaceCard,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                _listening ? Icons.mic : Icons.mic_none,
+                color: _listening
+                    ? AppColors.primaryLight
+                    : AppColors.textMuted,
+                size: 20,
+              ),
             ),
           ),
           const SizedBox(width: 8),

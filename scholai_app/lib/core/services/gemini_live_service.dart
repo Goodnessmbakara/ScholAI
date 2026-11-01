@@ -67,7 +67,9 @@ class GeminiLiveService {
   bool get hasApiKey => AppConfig.hasGeminiApiKey;
 
   /// Connects and waits for `setupComplete` before accepting turns.
-  Future<void> connect() async {
+  /// [memoryContext] is appended to the system prompt — recent journal/voice
+  /// turns so Scholly keeps a memory pool across sessions and modalities.
+  Future<void> connect({String memoryContext = ''}) async {
     if (_channel != null) return;
 
     if (!hasApiKey) {
@@ -137,10 +139,14 @@ You are speaking out loud to a student who might be exhausted, anxious, or decom
 
 Guidelines for spoken audio:
 - Speak slowly, with a soft, peaceful, and gentle cadence.
-- Keep spoken responses short (1-2 sentences at a time).
+- This is a real conversation, not a monologue — go deeper when the student
+  wants to talk, but keep each turn to a few sentences and leave natural
+  pauses so they can jump in. If they start speaking while you talk,
+  yield immediately and listen.
 - Never diagnose, prescribe, or give medical advice.
 - Validate their feelings first, then ask one gentle question.
 - If the student indicates thoughts of self-harm or despair, immediately acknowledge and urge real human support.
+${memoryContext.isEmpty ? '' : '\nWhat the student has shared recently (memory):\n$memoryContext'}
 '''
             }
           ]
