@@ -4,40 +4,40 @@ import 'package:google_fonts/google_fonts.dart';
 /// ScholAI colour palette — warm, earthy, not clinical.
 /// Inspired by Adire textile tones + Headspace warmth.
 class AppColors {
-  // Primary — warm terracotta
-  static const primary = Color(0xFFB85C38);
-  static const primaryLight = Color(0xFFD4845A);
-  static const primaryDark = Color(0xFF8C3D20);
+  // Primary — bold terracotta
+  static const primary = Color(0xFFD0703C);
+  static const primaryLight = Color(0xFFE8946B);
+  static const primaryDark = Color(0xFF9A4A22);
 
-  // Surface — dark mode warm base
-  static const surfaceDark = Color(0xFF1C1612);
-  static const surfaceMid = Color(0xFF2A201A);
-  static const surfaceCard = Color(0xFF332820);
+  // Surface — deep cocoa base
+  static const surfaceDark = Color(0xFF140E0A);
+  static const surfaceMid = Color(0xFF241811);
+  static const surfaceCard = Color(0xFF2E1F16);
 
   // Surface — light mode
-  static const surfaceLight = Color(0xFFFDF6EF);
-  static const surfaceCardLight = Color(0xFFF5EBE0);
+  static const surfaceLight = Color(0xFFFDF3E9);
+  static const surfaceCardLight = Color(0xFFF3E4D3);
 
-  // Accent — muted olive
-  static const accent = Color(0xFF7A8C5C);
-  static const accentLight = Color(0xFFA8BA7E);
+  // Accent — leaf green
+  static const accent = Color(0xFF7E9B4A);
+  static const accentLight = Color(0xFFB3C27B);
 
   // Mood colours (5-level scale)
-  static const moodVeryLow = Color(0xFF8B3A3A);   // deep red-brown
-  static const moodLow = Color(0xFFB87333);        // copper
-  static const moodNeutral = Color(0xFFD4A853);    // warm amber
-  static const moodGood = Color(0xFF7A9E6A);       // muted green
-  static const moodGreat = Color(0xFF4E8B6F);      // deeper green
+  static const moodVeryLow = Color(0xFF9C4040);   // deep clay red
+  static const moodLow = Color(0xFFC47B33);        // copper
+  static const moodNeutral = Color(0xFFD9A441);    // ochre gold
+  static const moodGood = Color(0xFF87A45F);       // leaf
+  static const moodGreat = Color(0xFF4F9370);      // deep leaf
 
   // Text
-  static const textPrimary = Color(0xFFF5EBE0);
-  static const textSecondary = Color(0xFFB0907A);
-  static const textMuted = Color(0xFF6B4E3A);
+  static const textPrimary = Color(0xFFF7ECDD);
+  static const textSecondary = Color(0xFFC29B82);
+  static const textMuted = Color(0xFF7A5C48);
 
   // Status
-  static const error = Color(0xFFCF6679);
-  static const warning = Color(0xFFD4A853);
-  static const success = Color(0xFF7A9E6A);
+  static const error = Color(0xFFD46A70);
+  static const warning = Color(0xFFD9A441);
+  static const success = Color(0xFF87A45F);
 }
 
 class AppTheme {
