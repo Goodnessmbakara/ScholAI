@@ -159,24 +159,6 @@ class _HabitsScreenState extends State<HabitsScreen> {
                 const SizedBox(height: 14),
                 _DisclaimerBanner(),
                 const SizedBox(height: 20),
-                _StatsRow(stats: stats),
-                const SizedBox(height: 16),
-                _PatternCard(pattern: pattern),
-                const SizedBox(height: 20),
-                ElevatedButton.icon(
-                  onPressed: () => _openTimer(activeHabit, plan),
-                  icon: const Icon(Icons.timer_outlined),
-                  label: const Text('Urge is here · 5 min'),
-                ),
-                const SizedBox(height: 28),
-                Text(
-                  'This area',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: AppColors.textPrimary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                ),
-                const SizedBox(height: 12),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
@@ -213,7 +195,41 @@ class _HabitsScreenState extends State<HabitsScreen> {
                       ),
                   ],
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 20),
+                ElevatedButton.icon(
+                  onPressed: () => _openTimer(activeHabit, plan),
+                  icon: const Icon(Icons.timer_outlined),
+                  label: const Text('Urge is here · 5 min'),
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceCard,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: ExpansionTile(
+                    tilePadding:
+                        const EdgeInsets.symmetric(horizontal: 16),
+                    childrenPadding:
+                        const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    iconColor: AppColors.textSecondary,
+                    collapsedIconColor: AppColors.textSecondary,
+                    title: const Text(
+                      'Plan & rules',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '${activeHabit.label} · ${plan.aim.label}',
+                      style: const TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 12,
+                      ),
+                    ),
+                    children: [
                 Row(
                   children: [
                     for (final aim in HabitAim.values) ...[
@@ -240,22 +256,49 @@ class _HabitsScreenState extends State<HabitsScreen> {
                   ),
                 ),
                 if (activeHabit == HabitKind.pornUrges) ...[
+                  const SizedBox(height: 12),
+                  const Text(
+                    'What counts as a slip?',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
                   const SizedBox(height: 8),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    value: plan.masturbationCountsAsSlip,
-                    activeThumbColor: AppColors.primaryLight,
-                    title: const Text(
-                      'Masturbation on its own counts as a slip',
-                      style: TextStyle(color: AppColors.textPrimary, fontSize: 14),
-                    ),
-                    subtitle: const Text(
-                      'Off means only porn ends a stop run. You choose.',
-                      style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
-                    ),
-                    onChanged: (value) => context.read<HabitCubit>().savePlan(
-                          plan.copyWith(masturbationCountsAsSlip: value),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _OutcomeButton(
+                          label: 'Porn only',
+                          selected: !plan.masturbationCountsAsSlip,
+                          onTap: () => context.read<HabitCubit>().savePlan(
+                                plan.copyWith(masturbationCountsAsSlip: false),
+                              ),
                         ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _OutcomeButton(
+                          label: 'Porn + masturbation',
+                          selected: plan.masturbationCountsAsSlip,
+                          onTap: () => context.read<HabitCubit>().savePlan(
+                                plan.copyWith(masturbationCountsAsSlip: true),
+                              ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    plan.masturbationCountsAsSlip
+                        ? 'Both porn and masturbation end a Stop run.'
+                        : 'Only porn ends a Stop run — masturbation alone is logged, not a slip.',
+                    style: const TextStyle(
+                      color: AppColors.textMuted,
+                      fontSize: 12,
+                      height: 1.4,
+                    ),
                   ),
                 ],
                 const SizedBox(height: 8),
@@ -278,9 +321,12 @@ class _HabitsScreenState extends State<HabitsScreen> {
                     FocusScope.of(context).unfocus();
                   },
                 ),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 24),
                 Text(
-                  'Or log it now',
+                  'Log it now',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: AppColors.textPrimary,
                         fontWeight: FontWeight.w600,
@@ -441,6 +487,10 @@ class _HabitsScreenState extends State<HabitsScreen> {
                   ),
                 ],
                 const SizedBox(height: 28),
+                _StatsRow(stats: stats),
+                const SizedBox(height: 16),
+                _PatternCard(pattern: pattern),
+                const SizedBox(height: 24),
                 Text(
                   'Recent',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
