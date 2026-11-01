@@ -105,7 +105,7 @@ class GeminiLiveService {
         },
       );
 
-      _sendSetupMessage();
+      _sendSetupMessage(memoryContext);
       await _setupCompleter!.future.timeout(const Duration(seconds: 20));
       _ready = true;
       _eventController.add(const LiveConnectedEvent());
@@ -116,7 +116,7 @@ class GeminiLiveService {
     }
   }
 
-  void _sendSetupMessage() {
+  void _sendSetupMessage(String memoryContext) {
     final setupPayload = {
       'setup': {
         'model': _liveModel,
